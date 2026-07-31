@@ -1,0 +1,3 @@
+// The first CrashScript source file.
+
+log("Hello from CrashScript.");
