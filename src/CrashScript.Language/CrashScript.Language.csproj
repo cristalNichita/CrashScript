@@ -1,9 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <RootNamespace>CrashScript.Language</RootNamespace>
-    <AssemblyName>CrashScript.Language</AssemblyName>
-  </PropertyGroup>
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <RootNamespace>CrashScript.Language</RootNamespace>
+        <AssemblyName>CrashScript.Language</AssemblyName>
+    </PropertyGroup>
 
 </Project>

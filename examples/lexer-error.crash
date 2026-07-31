@@ -1,0 +1,2 @@
+memory playerName: string = "Crash";
+memory score: int = @;

@@ -1,0 +1,24 @@
+// CrashScript lexer preview.
+
+fixed maxHealth: int = 100;
+
+memory playerName: string = "Crash";
+memory health: int = maxHealth;
+memory damage: float = 12.5;
+memory alive: bool = true;
+memory nickname: string? = null;
+
+memory inferredScore := 25;
+
+process getRank(score: int) -> string
+	return select
+		when score >= 100 => "Legendary";
+		when score >= 50 => "High";
+		else => "Normal";
+	end;
+end;
+
+guard health >= 0 else "Health cannot be negative";
+
+log("Player: " + playerName);
+log("Health: " + toString(health));

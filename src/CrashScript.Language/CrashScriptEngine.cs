@@ -1,31 +1,28 @@
+using CrashScript.Language.Lexing;
 using CrashScript.Language.Source;
 
 namespace CrashScript.Language;
 
-
 /// <summary>
-/// Main entry point for working with CrashScript source code.
-/// The lexer, parser, binder and interpreter will later be connected here.
+///     Main entry point for the CrashScript compilation pipeline.
 /// </summary>
 public sealed class CrashScriptEngine
 {
     public const string FileExtension = ".crash";
 
     /// <summary>
-    /// Loads and validates a CrashScript source file.
+    ///     Loads and validates a CrashScript source file.
     /// </summary>
     public SourceText LoadSourceFile(string filePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
 
-        string fullPath = Path.GetFullPath(filePath);
+        var fullPath = Path.GetFullPath(filePath);
 
         if (!File.Exists(fullPath))
-        {
             throw new FileNotFoundException(
                 $"CrashScript source file was not found: {fullPath}",
                 fullPath);
-        }
 
         string extension = Path.GetExtension(fullPath);
 
@@ -33,13 +30,27 @@ public sealed class CrashScriptEngine
                 extension,
                 FileExtension,
                 StringComparison.OrdinalIgnoreCase))
-        {
             throw new InvalidDataException(
                 $"Expected a '{FileExtension}' file, but received '{extension}'.");
-        }
 
-        string sourceCode = File.ReadAllText(fullPath);
+        var sourceCode = File.ReadAllText(fullPath);
 
         return new SourceText(fullPath, sourceCode);
+    }
+
+    public LexResult Tokenize(SourceText source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        
+        var lexer = new Lexer(source);
+        
+        return lexer.Lex();
+    }
+
+    public LexResult TokenizeFile(string filePath)
+    {
+        SourceText source = LoadSourceFile(filePath);
+
+        return Tokenize(source);
     }
 }
