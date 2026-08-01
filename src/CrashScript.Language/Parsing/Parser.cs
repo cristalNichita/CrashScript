@@ -81,7 +81,14 @@ public sealed class Parser
             TokenType.FixedKeyword =>
                 ParseVariableDeclarationStatement(),
 
-            _ => ParseExpressionStatement()
+            TokenType.IfKeyword =>
+                ParseIfStatement(),
+
+            TokenType.WhileKeyword =>
+                ParseWhileStatement(),
+
+            _ =>
+                ParseExpressionStatement()
         };
     }
 
@@ -103,13 +110,14 @@ public sealed class Parser
         }
         else
         {
-            colonToken = MatchToken(
-                TokenType.Colon);
+            colonToken =
+                MatchToken(TokenType.Colon);
 
-            declaredType = ParseTypeSyntax();
+            declaredType =
+                ParseTypeSyntax();
 
-            assignmentToken = MatchToken(
-                TokenType.Equal);
+            assignmentToken =
+                MatchToken(TokenType.Equal);
         }
 
         ExpressionSyntax initializer =
@@ -128,6 +136,152 @@ public sealed class Parser
             semicolonToken);
     }
 
+    private IfStatementSyntax ParseIfStatement()
+    {
+        var branches = new List<IfBranchSyntax>();
+
+        Token ifKeyword =
+            MatchToken(TokenType.IfKeyword);
+
+        ExpressionSyntax condition =
+            ParseExpression();
+
+        Token thenKeyword =
+            MatchThenKeyword();
+
+        BlockStatementSyntax body =
+            ParseBlockUntil(
+                TokenType.ElseKeyword,
+                TokenType.EndKeyword);
+
+        branches.Add(
+            new IfBranchSyntax(
+                ifKeyword,
+                ElseKeyword: null,
+                condition,
+                thenKeyword,
+                body));
+
+        while (Current.Type == TokenType.ElseKeyword &&
+               Peek(1).Type == TokenType.IfKeyword)
+        {
+            Token elseKeyword = NextToken();
+            Token elseIfKeyword = NextToken();
+
+            ExpressionSyntax elseIfCondition =
+                ParseExpression();
+
+            Token elseIfThenKeyword =
+                MatchThenKeyword();
+
+            BlockStatementSyntax elseIfBody =
+                ParseBlockUntil(
+                    TokenType.ElseKeyword,
+                    TokenType.EndKeyword);
+
+            branches.Add(
+                new IfBranchSyntax(
+                    elseIfKeyword,
+                    elseKeyword,
+                    elseIfCondition,
+                    elseIfThenKeyword,
+                    elseIfBody));
+        }
+
+        ElseClauseSyntax? elseClause = null;
+
+        if (Current.Type == TokenType.ElseKeyword)
+        {
+            Token elseKeyword = NextToken();
+
+            BlockStatementSyntax elseBody =
+                ParseBlockUntil(
+                    TokenType.EndKeyword);
+
+            elseClause =
+                new ElseClauseSyntax(
+                    elseKeyword,
+                    elseBody);
+        }
+
+        Token endKeyword =
+            MatchEndKeyword();
+
+        Token semicolonToken =
+            MatchSemicolon();
+
+        return new IfStatementSyntax(
+            branches.ToArray(),
+            elseClause,
+            endKeyword,
+            semicolonToken);
+    }
+
+    private WhileStatementSyntax ParseWhileStatement()
+    {
+        Token whileKeyword =
+            MatchToken(TokenType.WhileKeyword);
+
+        ExpressionSyntax condition =
+            ParseExpression();
+
+        Token doKeyword =
+            MatchDoKeyword();
+
+        BlockStatementSyntax body =
+            ParseBlockUntil(
+                TokenType.EndKeyword);
+
+        Token endKeyword =
+            MatchEndKeyword();
+
+        Token semicolonToken =
+            MatchSemicolon();
+
+        return new WhileStatementSyntax(
+            whileKeyword,
+            condition,
+            doKeyword,
+            body,
+            endKeyword,
+            semicolonToken);
+    }
+
+    private BlockStatementSyntax ParseBlockUntil(
+        params TokenType[] terminators)
+    {
+        int blockStart = Current.Span.Start;
+
+        var statements =
+            new List<StatementSyntax>();
+
+        while (Current.Type != TokenType.EndOfFile &&
+               !terminators.Contains(Current.Type))
+        {
+            int statementStart = _position;
+
+            statements.Add(ParseStatement());
+
+            if (_position == statementStart)
+            {
+                NextToken();
+            }
+        }
+
+        int blockEnd = statements.Count == 0
+            ? blockStart
+            : statements[^1].Span.End;
+
+        var span = new SourceSpan(
+            Current.Span.Source,
+            blockStart,
+            blockEnd - blockStart);
+
+        return new BlockStatementSyntax(
+            statements.ToArray(),
+            span);
+    }
+
     private TypeSyntax ParseTypeSyntax()
     {
         Token nameToken;
@@ -138,8 +292,8 @@ public sealed class Parser
         }
         else
         {
-            nameToken = MatchToken(
-                TokenType.Identifier);
+            nameToken =
+                MatchToken(TokenType.Identifier);
         }
 
         Token? questionToken = null;
@@ -400,8 +554,7 @@ public sealed class Parser
         {
             while (true)
             {
-                arguments.Add(
-                    ParseExpression());
+                arguments.Add(ParseExpression());
 
                 if (Current.Type != TokenType.Comma)
                 {
@@ -500,8 +653,7 @@ public sealed class Parser
         Token unexpectedToken = Current;
 
         string foundText =
-            unexpectedToken.Type ==
-            TokenType.EndOfFile
+            unexpectedToken.Type == TokenType.EndOfFile
                 ? "end of file"
                 : $"`{unexpectedToken.Text}`";
 
@@ -515,7 +667,9 @@ public sealed class Parser
             unexpectedToken.Type != TokenType.EndOfFile &&
             unexpectedToken.Type != TokenType.Semicolon &&
             unexpectedToken.Type != TokenType.RightParenthesis &&
-            unexpectedToken.Type != TokenType.Comma;
+            unexpectedToken.Type != TokenType.Comma &&
+            unexpectedToken.Type != TokenType.ElseKeyword &&
+            unexpectedToken.Type != TokenType.EndKeyword;
 
         if (canConsume)
         {
@@ -526,6 +680,64 @@ public sealed class Parser
             SourceSpan.Empty(
                 unexpectedToken.Span.Source,
                 unexpectedToken.Span.Start));
+    }
+
+    private Token MatchThenKeyword()
+    {
+        if (Current.Type == TokenType.ThenKeyword)
+        {
+            return NextToken();
+        }
+
+        _diagnostics.Report(
+            DiagnosticCodes.ExpectedThen,
+            DiagnosticCategory.Parser,
+            "Expected `then` after the `if` condition.",
+            Current.Span,
+            "CrashScript uses `if condition then`.");
+
+        return CreateMissingToken(
+            TokenType.ThenKeyword,
+            Current.Span.Start);
+    }
+
+    private Token MatchDoKeyword()
+    {
+        if (Current.Type == TokenType.DoKeyword)
+        {
+            return NextToken();
+        }
+
+        _diagnostics.Report(
+            DiagnosticCodes.ExpectedDo,
+            DiagnosticCategory.Parser,
+            "Expected `do` after the `while` condition.",
+            Current.Span,
+            "CrashScript uses `while condition do`.");
+
+        return CreateMissingToken(
+            TokenType.DoKeyword,
+            Current.Span.Start);
+    }
+
+    private Token MatchEndKeyword()
+    {
+        if (Current.Type == TokenType.EndKeyword)
+        {
+            return NextToken();
+        }
+
+        _diagnostics.Report(
+            DiagnosticCodes.ExpectedEnd,
+            DiagnosticCategory.Parser,
+            "Expected `end` to close the block.",
+            Current.Span,
+            "Every `if` and `while` block must finish with `end;`.",
+            "The block continued beyond the parser's emotional capacity.");
+
+        return CreateMissingToken(
+            TokenType.EndKeyword,
+            Current.Span.Start);
     }
 
     private Token MatchSemicolon()
@@ -592,8 +804,7 @@ public sealed class Parser
         return current;
     }
 
-    private static bool IsTypeNameToken(
-        TokenType type)
+    private static bool IsTypeNameToken(TokenType type)
     {
         return type is
             TokenType.IntKeyword or

@@ -12,6 +12,9 @@ public static class DiagnosticCodes
     public const string UnexpectedToken = "CRASH-P201";
     public const string ExpectedExpression = "CRASH-P202";
     public const string ExpectedSemicolon = "CRASH-P203";
+    public const string ExpectedThen = "CRASH-P204";
+    public const string ExpectedDo = "CRASH-P205";
+    public const string ExpectedEnd = "CRASH-P206";
 
     // Type and binding errors
     public const string UndefinedName = "CRASH-T301";
@@ -29,6 +32,7 @@ public static class DiagnosticCodes
     public const string InvalidAssignmentTarget = "CRASH-T313";
     public const string CannotInferType = "CRASH-T314";
     public const string InvalidVariableType = "CRASH-T315";
+    public const string ConditionMustBeBoolean = "CRASH-T316";
 
     // Runtime errors
     public const string GuardFailed = "CRASH-R401";

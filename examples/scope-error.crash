@@ -1,0 +1,6 @@
+if true then
+	memory secret := 42;
+	log(secret);
+end;
+
+log(secret);

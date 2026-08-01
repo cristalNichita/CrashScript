@@ -9,7 +9,7 @@ namespace CrashScript.Language.Runtime;
 public sealed class Interpreter
 {
     private readonly NativeFunctionDispatcher _nativeFunctions;
-    private readonly RuntimeEnvironment _environment;
+    private RuntimeEnvironment _environment;
 
     public Interpreter(
         ICrashConsole? console = null,
@@ -64,6 +64,15 @@ public sealed class Interpreter
             BoundVariableDeclaration declaration =>
                 ExecuteVariableDeclaration(declaration),
 
+            BoundBlockStatement block =>
+                ExecuteBlockStatement(block),
+
+            BoundIfStatement ifStatement =>
+                ExecuteIfStatement(ifStatement),
+
+            BoundWhileStatement whileStatement =>
+                ExecuteWhileStatement(whileStatement),
+
             BoundExpressionStatement expressionStatement =>
                 EvaluateExpression(
                     expressionStatement.Expression),
@@ -71,6 +80,76 @@ public sealed class Interpreter
             _ => throw new InvalidOperationException(
                 $"Unsupported bound statement: {statement.GetType().Name}")
         };
+    }
+    
+    private object? ExecuteBlockStatement(
+        BoundBlockStatement block)
+    {
+        RuntimeEnvironment previousEnvironment =
+            _environment;
+
+        _environment =
+            new RuntimeEnvironment(
+                previousEnvironment);
+
+        try
+        {
+            object? lastValue = null;
+
+            foreach (BoundStatement statement in block.Statements)
+            {
+                lastValue =
+                    ExecuteStatement(statement);
+            }
+
+            return lastValue;
+        }
+        finally
+        {
+            _environment =
+                previousEnvironment;
+        }
+    }
+    
+    private object? ExecuteIfStatement(
+        BoundIfStatement statement)
+    {
+        foreach (BoundIfBranch branch in statement.Branches)
+        {
+            bool condition =
+                (bool)EvaluateExpression(
+                    branch.Condition)!;
+
+            if (condition)
+            {
+                return ExecuteBlockStatement(
+                    branch.Body);
+            }
+        }
+
+        if (statement.ElseBody is not null)
+        {
+            return ExecuteBlockStatement(
+                statement.ElseBody);
+        }
+
+        return null;
+    }
+    
+    private object? ExecuteWhileStatement(
+        BoundWhileStatement statement)
+    {
+        object? lastValue = null;
+
+        while ((bool)EvaluateExpression(
+                   statement.Condition)!)
+        {
+            lastValue =
+                ExecuteBlockStatement(
+                    statement.Body);
+        }
+
+        return lastValue;
     }
     
     private object? ExecuteVariableDeclaration(

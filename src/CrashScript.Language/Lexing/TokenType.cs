@@ -49,8 +49,10 @@ public enum TokenType
     
     // Control flow
     IfKeyword,
+    ThenKeyword,
     ElseKeyword,
     WhileKeyword,
+    DoKeyword,
     EndKeyword,
     
     // Logical operators

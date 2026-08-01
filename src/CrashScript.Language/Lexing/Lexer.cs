@@ -16,8 +16,10 @@ public sealed class Lexer
             ["return"] = TokenType.ReturnKeyword,
 
             ["if"] = TokenType.IfKeyword,
+            ["then"] = TokenType.ThenKeyword,
             ["else"] = TokenType.ElseKeyword,
             ["while"] = TokenType.WhileKeyword,
+            ["do"] = TokenType.DoKeyword,
             ["end"] = TokenType.EndKeyword,
 
             ["and"] = TokenType.AndKeyword,

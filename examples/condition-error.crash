@@ -1,0 +1,5 @@
+memory health := 100;
+
+if health then
+	log("Alive");
+end;

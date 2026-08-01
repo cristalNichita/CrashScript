@@ -1,0 +1,30 @@
+// CrashScript control flow and scopes.
+
+memory score := 0;
+fixed target := 5;
+
+while score < target do
+	score = score + 1;
+	
+	memory doubled := score * 2;
+	
+	if score == 3 then
+		log("Halfway there");
+	else if score == target then
+		log("Final score reached");
+	else
+		log("Score: " + toString(score) + ", doubled: " + toString(doubled));
+	end;
+end;
+
+log("");
+
+memory message := "Outer scope";
+
+if true then
+	memory message := "Inner scope";
+	log(message);
+end;
+
+log(message);
+log("Finished with score " + toString(score));

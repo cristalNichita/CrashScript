@@ -12,7 +12,7 @@ namespace CrashScript.Language.Binding;
 public sealed class Binder
 {
     private readonly DiagnosticBag _diagnostics = new();
-    private readonly BoundScope _scope = new(parent: null);
+    private BoundScope _scope = new(parent: null);
 
     public BindResult Bind(CompilationUnitSyntax syntax)
     {
@@ -38,7 +38,16 @@ public sealed class Binder
         {
             VariableDeclarationStatementSyntax declaration =>
                 BindVariableDeclarationStatement(declaration),
-            
+
+            BlockStatementSyntax block =>
+                BindBlockStatement(block),
+
+            IfStatementSyntax ifStatement =>
+                BindIfStatement(ifStatement),
+
+            WhileStatementSyntax whileStatement =>
+                BindWhileStatement(whileStatement),
+
             ExpressionStatementSyntax expressionStatement =>
                 BindExpressionStatement(expressionStatement),
 
@@ -55,6 +64,109 @@ public sealed class Binder
 
         return new BoundExpressionStatement(
             expression,
+            syntax.Span);
+    }
+    
+    private BoundBlockStatement BindBlockStatement(
+        BlockStatementSyntax syntax)
+    {
+        BoundScope previousScope = _scope;
+        _scope = new BoundScope(previousScope);
+
+        try
+        {
+            BoundStatement[] statements = syntax.Statements
+                .Select(BindStatement)
+                .ToArray();
+
+            return new BoundBlockStatement(
+                statements,
+                syntax.Span);
+        }
+        finally
+        {
+            _scope = previousScope;
+        }
+    }
+    
+    private BoundIfStatement BindIfStatement(
+        IfStatementSyntax syntax)
+    {
+        var branches = new List<BoundIfBranch>();
+
+        foreach (IfBranchSyntax branchSyntax in syntax.Branches)
+        {
+            BoundExpression condition =
+                BindBooleanCondition(
+                    branchSyntax.Condition);
+
+            BoundBlockStatement body =
+                BindBlockStatement(
+                    branchSyntax.Body);
+
+            branches.Add(
+                new BoundIfBranch(
+                    condition,
+                    body,
+                    branchSyntax.Span));
+        }
+
+        BoundBlockStatement? elseBody = null;
+
+        if (syntax.ElseClause is not null)
+        {
+            elseBody =
+                BindBlockStatement(
+                    syntax.ElseClause.Body);
+        }
+
+        return new BoundIfStatement(
+            branches.ToArray(),
+            elseBody,
+            syntax.Span);
+    }
+    
+    private BoundWhileStatement BindWhileStatement(
+        WhileStatementSyntax syntax)
+    {
+        BoundExpression condition =
+            BindBooleanCondition(
+                syntax.Condition);
+
+        BoundBlockStatement body =
+            BindBlockStatement(
+                syntax.Body);
+
+        return new BoundWhileStatement(
+            condition,
+            body,
+            syntax.Span);
+    }
+    
+    private BoundExpression BindBooleanCondition(
+        ExpressionSyntax syntax)
+    {
+        BoundExpression condition =
+            BindExpression(syntax);
+
+        if (condition.Type == TypeSymbol.Error)
+        {
+            return condition;
+        }
+
+        if (condition.Type == TypeSymbol.Bool)
+        {
+            return condition;
+        }
+
+        _diagnostics.Report(
+            DiagnosticCodes.ConditionMustBeBoolean,
+            DiagnosticCategory.Type,
+            $"Condition must have type `bool`, but found `{condition.Type.Name}`.",
+            syntax.Span,
+            "CrashScript does not treat numbers, strings or null as booleans.");
+
+        return new BoundErrorExpression(
             syntax.Span);
     }
     

@@ -89,7 +89,7 @@ public sealed class LexerTests
     {
         const string source = """
             memory fixed process return
-            if else while end
+            if then else while do end
             and or not
             select when guard
             true false null
@@ -108,8 +108,10 @@ public sealed class LexerTests
             TokenType.ReturnKeyword,
 
             TokenType.IfKeyword,
+            TokenType.ThenKeyword,
             TokenType.ElseKeyword,
             TokenType.WhileKeyword,
+            TokenType.DoKeyword,
             TokenType.EndKeyword,
 
             TokenType.AndKeyword,

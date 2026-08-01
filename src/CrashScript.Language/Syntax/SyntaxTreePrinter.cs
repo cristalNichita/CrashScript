@@ -61,14 +61,35 @@ public static class SyntaxTreePrinter
             VariableDeclarationStatementSyntax declaration =>
                 [declaration.Initializer],
 
+            BlockStatementSyntax block =>
+                block.Statements,
+
+            IfStatementSyntax ifStatement =>
+                GetIfChildren(ifStatement),
+
+            IfBranchSyntax branch =>
+            [
+                branch.Condition,
+                branch.Body
+            ],
+
+            ElseClauseSyntax elseClause =>
+                [elseClause.Body],
+
+            WhileStatementSyntax whileStatement =>
+            [
+                whileStatement.Condition,
+                whileStatement.Body
+            ],
+
             ExpressionStatementSyntax expressionStatement =>
                 [expressionStatement.Expression],
 
             AssignmentExpressionSyntax assignment =>
-                [
-                    assignment.Target,
-                    assignment.Value
-                ],
+            [
+                assignment.Target,
+                assignment.Value
+            ],
 
             ParenthesizedExpressionSyntax parenthesized =>
                 [parenthesized.Expression],
@@ -77,10 +98,10 @@ public static class SyntaxTreePrinter
                 [unary.Operand],
 
             BinaryExpressionSyntax binary =>
-                [
-                    binary.Left,
-                    binary.Right
-                ],
+            [
+                binary.Left,
+                binary.Right
+            ],
 
             CallExpressionSyntax call =>
                 new SyntaxNode[]
@@ -131,6 +152,23 @@ public static class SyntaxTreePrinter
 
             TypeSyntax type =>
                 $"TypeSyntax ({type.Name}{(type.IsNullable ? "?" : string.Empty)})",
+            
+            BlockStatementSyntax =>
+                "BlockStatement",
+
+            IfStatementSyntax =>
+                "IfStatement",
+
+            IfBranchSyntax branch =>
+                branch.ElseKeyword is null
+                    ? "IfBranch"
+                    : "ElseIfBranch",
+
+            ElseClauseSyntax =>
+                "ElseClause",
+
+            WhileStatementSyntax =>
+                "WhileStatement",
 
             _ => node.GetType().Name
         };
@@ -172,6 +210,20 @@ public static class SyntaxTreePrinter
 
             _ => value.ToString() ?? "null"
         };
+    }
+    
+    private static IEnumerable<SyntaxNode> GetIfChildren(
+        IfStatementSyntax statement)
+    {
+        foreach (IfBranchSyntax branch in statement.Branches)
+        {
+            yield return branch;
+        }
+
+        if (statement.ElseClause is not null)
+        {
+            yield return statement.ElseClause;
+        }
     }
 
     private static string Escape(string text)

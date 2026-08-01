@@ -58,8 +58,32 @@ public static class BoundTreePrinter
             BoundCompilationUnit compilationUnit =>
                 compilationUnit.Statements,
 
+            BoundBlockStatement block =>
+                block.Statements,
+
+            BoundIfStatement ifStatement =>
+                GetIfChildren(ifStatement),
+
+            BoundIfBranch branch =>
+            [
+                branch.Condition,
+                branch.Body
+            ],
+
+            BoundWhileStatement whileStatement =>
+            [
+                whileStatement.Condition,
+                whileStatement.Body
+            ],
+
+            BoundVariableDeclaration declaration =>
+                [declaration.Initializer],
+
             BoundExpressionStatement expressionStatement =>
                 [expressionStatement.Expression],
+
+            BoundAssignmentExpression assignment =>
+                [assignment.Expression],
 
             BoundConversionExpression conversion =>
                 [conversion.Expression],
@@ -68,19 +92,13 @@ public static class BoundTreePrinter
                 [unary.Operand],
 
             BoundBinaryExpression binary =>
-                [
-                    binary.Left,
-                    binary.Right
-                ],
+            [
+                binary.Left,
+                binary.Right
+            ],
 
             BoundCallExpression call =>
                 call.Arguments,
-            
-            BoundVariableDeclaration declaration =>
-                [declaration.Initializer],
-            
-            BoundAssignmentExpression assignment =>
-                [assignment.Expression],
 
             _ => []
         };
@@ -122,9 +140,35 @@ public static class BoundTreePrinter
 
             BoundAssignmentExpression assignment =>
                 $"BoundAssignmentExpression ({assignment.Variable.Name} : {assignment.Type.Name})",
+            
+            BoundBlockStatement =>
+                "BoundBlockStatement",
+
+            BoundIfStatement =>
+                "BoundIfStatement",
+
+            BoundIfBranch =>
+                "BoundIfBranch",
+
+            BoundWhileStatement =>
+                "BoundWhileStatement",
 
             _ => node.GetType().Name
         };
+    }
+    
+    private static IEnumerable<BoundNode> GetIfChildren(
+        BoundIfStatement statement)
+    {
+        foreach (BoundIfBranch branch in statement.Branches)
+        {
+            yield return branch;
+        }
+
+        if (statement.ElseBody is not null)
+        {
+            yield return statement.ElseBody;
+        }
     }
 
     private static string FormatValue(object? value)
