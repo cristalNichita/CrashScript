@@ -2,6 +2,7 @@ using CrashScript.Language.Binding;
 using CrashScript.Language.Diagnostics;
 using CrashScript.Language.Lexing;
 using CrashScript.Language.Parsing;
+using CrashScript.Language.Runtime;
 using CrashScript.Language.Source;
 
 namespace CrashScript.Language;
@@ -66,7 +67,9 @@ public sealed class CrashScriptEngine
 
         LexResult lexResult = Tokenize(source);
 
-        var parser = new Parser(lexResult.Tokens);
+        var parser = new Parser(
+            lexResult.Tokens);
+
         ParseResult parseResult = parser.Parse();
 
         Diagnostic[] diagnostics = lexResult.Diagnostics
@@ -94,6 +97,7 @@ public sealed class CrashScriptEngine
         ParseResult parseResult = Parse(source);
 
         var binder = new Binder();
+
         BindResult bindResult = binder.Bind(
             parseResult.Root);
 
@@ -113,5 +117,43 @@ public sealed class CrashScriptEngine
         SourceText source = LoadSourceFile(filePath);
 
         return Bind(source);
+    }
+
+    public ExecutionResult Execute(
+        SourceText source,
+        ICrashConsole? console = null,
+        Random? random = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        BindResult bindResult = Bind(source);
+
+        if (bindResult.Diagnostics.Count > 0)
+        {
+            return new ExecutionResult(
+                LastValue: null,
+                bindResult.Diagnostics,
+                Executed: false);
+        }
+
+        var interpreter = new Interpreter(
+            console,
+            random);
+
+        return interpreter.Execute(
+            bindResult.Root);
+    }
+
+    public ExecutionResult ExecuteFile(
+        string filePath,
+        ICrashConsole? console = null,
+        Random? random = null)
+    {
+        SourceText source = LoadSourceFile(filePath);
+
+        return Execute(
+            source,
+            console,
+            random);
     }
 }

@@ -4,6 +4,7 @@ using CrashScript.Language.Binding;
 using CrashScript.Language.Diagnostics;
 using CrashScript.Language.Lexing;
 using CrashScript.Language.Parsing;
+using CrashScript.Language.Runtime;
 using CrashScript.Language.Source;
 using CrashScript.Language.Syntax;
 
@@ -19,6 +20,7 @@ internal static class Program
     private const int LexerErrorExitCode = 3;
     private const int ParserErrorExitCode = 4;
     private const int TypeErrorExitCode = 5;
+    private const int RuntimeErrorExitCode = 6;
 
     public static int Main(string[] args)
     {
@@ -44,28 +46,36 @@ internal static class Program
         try
         {
             var engine = new CrashScriptEngine();
+
             SourceText source =
                 engine.LoadSourceFile(filePath);
 
             return outputMode switch
             {
                 OutputMode.Tokens =>
-                    RunLexerMode(engine, source),
+                    RunLexerMode(
+                        engine,
+                        source),
 
                 OutputMode.Ast =>
-                    RunParserMode(engine, source),
+                    RunParserMode(
+                        engine,
+                        source),
 
                 OutputMode.Bound =>
-                    RunBindingMode(
+                    RunBoundMode(
                         engine,
-                        source,
-                        printTree: true),
+                        source),
+
+                OutputMode.Check =>
+                    RunCheckMode(
+                        engine,
+                        source),
 
                 _ =>
-                    RunBindingMode(
+                    RunExecutionMode(
                         engine,
-                        source,
-                        printTree: false)
+                        source)
             };
         }
         catch (FileNotFoundException exception)
@@ -94,6 +104,57 @@ internal static class Program
         }
     }
 
+    private static int RunExecutionMode(
+        CrashScriptEngine engine,
+        SourceText source)
+    {
+        ExecutionResult result =
+            engine.Execute(source);
+
+        if (result.Diagnostics.Count > 0)
+        {
+            PrintDiagnostics(
+                result.Diagnostics);
+
+            return GetDiagnosticExitCode(
+                result.Diagnostics);
+        }
+
+        return SuccessExitCode;
+    }
+
+    private static int RunCheckMode(
+        CrashScriptEngine engine,
+        SourceText source)
+    {
+        BindResult result =
+            engine.Bind(source);
+
+        if (result.Diagnostics.Count > 0)
+        {
+            PrintDiagnostics(
+                result.Diagnostics);
+
+            return GetDiagnosticExitCode(
+                result.Diagnostics);
+        }
+
+        Console.WriteLine(
+            $"CrashScript {Version}");
+        Console.WriteLine(
+            $"Checked: {source.FileName}");
+        Console.WriteLine(
+            $"Statements: {result.Root.Statements.Count}");
+        Console.WriteLine("Lexer errors: 0");
+        Console.WriteLine("Parser errors: 0");
+        Console.WriteLine("Type errors: 0");
+        Console.WriteLine();
+        Console.WriteLine(
+            "The program is ready to execute.");
+
+        return SuccessExitCode;
+    }
+
     private static int RunLexerMode(
         CrashScriptEngine engine,
         SourceText source)
@@ -105,7 +166,8 @@ internal static class Program
 
         if (result.Diagnostics.Count > 0)
         {
-            PrintDiagnostics(result.Diagnostics);
+            PrintDiagnostics(
+                result.Diagnostics);
 
             return LexerErrorExitCode;
         }
@@ -122,7 +184,8 @@ internal static class Program
 
         if (result.Diagnostics.Count > 0)
         {
-            PrintDiagnostics(result.Diagnostics);
+            PrintDiagnostics(
+                result.Diagnostics);
 
             return GetDiagnosticExitCode(
                 result.Diagnostics);
@@ -135,59 +198,41 @@ internal static class Program
         Console.WriteLine(
             "----------------------------------------");
         Console.WriteLine(
-            SyntaxTreePrinter.Print(result.Root));
+            SyntaxTreePrinter.Print(
+                result.Root));
         Console.WriteLine(
             "----------------------------------------");
 
         return SuccessExitCode;
     }
 
-    private static int RunBindingMode(
+    private static int RunBoundMode(
         CrashScriptEngine engine,
-        SourceText source,
-        bool printTree)
+        SourceText source)
     {
         BindResult result =
             engine.Bind(source);
 
         if (result.Diagnostics.Count > 0)
         {
-            PrintDiagnostics(result.Diagnostics);
+            PrintDiagnostics(
+                result.Diagnostics);
 
             return GetDiagnosticExitCode(
                 result.Diagnostics);
         }
 
-        if (printTree)
-        {
-            Console.WriteLine(
-                $"CrashScript {Version}");
-            Console.WriteLine();
-            Console.WriteLine("BOUND AST");
-            Console.WriteLine(
-                "----------------------------------------");
-            Console.WriteLine(
-                BoundTreePrinter.Print(result.Root));
-            Console.WriteLine(
-                "----------------------------------------");
-
-            return SuccessExitCode;
-        }
-
         Console.WriteLine(
             $"CrashScript {Version}");
-        Console.WriteLine(
-            $"Type-checked: {source.FileName}");
-        Console.WriteLine(
-            $"Statements: {result.Root.Statements.Count}");
-        Console.WriteLine("Lexer errors: 0");
-        Console.WriteLine("Parser errors: 0");
-        Console.WriteLine("Type errors: 0");
         Console.WriteLine();
+        Console.WriteLine("BOUND AST");
         Console.WriteLine(
-            "The source is valid at the type level.");
+            "----------------------------------------");
         Console.WriteLine(
-            "Interpreter is not implemented yet.");
+            BoundTreePrinter.Print(
+                result.Root));
+        Console.WriteLine(
+            "----------------------------------------");
 
         return SuccessExitCode;
     }
@@ -209,7 +254,14 @@ internal static class Program
             return ParserErrorExitCode;
         }
 
-        return TypeErrorExitCode;
+        if (diagnostics.Any(diagnostic =>
+                diagnostic.Category ==
+                DiagnosticCategory.Type))
+        {
+            return TypeErrorExitCode;
+        }
+
+        return RuntimeErrorExitCode;
     }
 
     private static bool TryParseArguments(
@@ -218,7 +270,7 @@ internal static class Program
         out OutputMode outputMode)
     {
         filePath = string.Empty;
-        outputMode = OutputMode.Validate;
+        outputMode = OutputMode.Execute;
 
         if (args.Length == 1)
         {
@@ -236,6 +288,7 @@ internal static class Program
             "--tokens" => OutputMode.Tokens,
             "--ast" => OutputMode.Ast,
             "--bound" => OutputMode.Bound,
+            "--check" => OutputMode.Check,
             _ => OutputMode.Invalid
         };
 
@@ -309,19 +362,24 @@ internal static class Program
                 DiagnosticRenderer.Render(
                     diagnostics[index]));
 
-            if (index + 1 < diagnostics.Count)
+            if (index + 1 <
+                diagnostics.Count)
             {
                 Console.Error.WriteLine();
             }
         }
     }
 
-    private static string FormatValue(object? value)
+    private static string FormatValue(
+        object? value)
     {
         return value switch
         {
             null => "-",
-            string text => $"\"{Escape(text)}\"",
+
+            string text =>
+                $"\"{Escape(text)}\"",
+
             bool boolean =>
                 boolean ? "true" : "false",
 
@@ -353,6 +411,8 @@ internal static class Program
         Console.WriteLine(
             "  crashscript <file.crash>");
         Console.WriteLine(
+            "  crashscript --check <file.crash>");
+        Console.WriteLine(
             "  crashscript --tokens <file.crash>");
         Console.WriteLine(
             "  crashscript --ast <file.crash>");
@@ -373,7 +433,8 @@ internal static class Program
     private enum OutputMode
     {
         Invalid,
-        Validate,
+        Execute,
+        Check,
         Tokens,
         Ast,
         Bound

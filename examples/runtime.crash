@@ -1,0 +1,23 @@
+// CrashScript runtime preview.
+
+log("CrashScript runtime online");
+
+log(1 + 2 * 3);
+log((1 + 2) * 3);
+
+log(10 + 2.5);
+log(10 / 4);
+
+log("Crash" + "Script");
+
+log(not false);
+log(true and true);
+log(false or true);
+
+log(null ?? "Fallback value");
+log(toInt("42") ?? 0);
+
+log(length("CrashScript"));
+log(toString(100));
+
+log(random(1, 3));

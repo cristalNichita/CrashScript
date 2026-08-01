@@ -2,57 +2,78 @@ namespace CrashScript.Language.Binding.Symbols;
 
 public static class BuiltinFunctions
 {
-    private static readonly FunctionSymbol[] Functions =
-    [
+    public static FunctionSymbol Log { get; } =
         Create(
             "log",
             TypeSymbol.Void,
-            ("value", TypeSymbol.Any)),
+            ("value", TypeSymbol.Any));
 
+    public static FunctionSymbol Input { get; } =
         Create(
             "input",
             TypeSymbol.String,
-            ("prompt", TypeSymbol.String)),
+            ("prompt", TypeSymbol.String));
 
+    public static FunctionSymbol Length { get; } =
         Create(
             "length",
             TypeSymbol.Int,
-            ("value", TypeSymbol.String)),
+            ("value", TypeSymbol.String));
 
+    public static FunctionSymbol ToIntFromString { get; } =
         Create(
             "toInt",
             TypeSymbol.Nullable(TypeSymbol.Int),
-            ("value", TypeSymbol.String)),
+            ("value", TypeSymbol.String));
 
+    public static FunctionSymbol ToIntFromFloat { get; } =
         Create(
             "toInt",
             TypeSymbol.Int,
-            ("value", TypeSymbol.Float)),
+            ("value", TypeSymbol.Float));
 
+    public static FunctionSymbol ToFloatFromString { get; } =
         Create(
             "toFloat",
             TypeSymbol.Nullable(TypeSymbol.Float),
-            ("value", TypeSymbol.String)),
+            ("value", TypeSymbol.String));
 
+    public static FunctionSymbol ToFloatFromInt { get; } =
         Create(
             "toFloat",
             TypeSymbol.Float,
-            ("value", TypeSymbol.Int)),
+            ("value", TypeSymbol.Int));
 
+    public new static FunctionSymbol ToString { get; } =
         Create(
             "toString",
             TypeSymbol.String,
-            ("value", TypeSymbol.Any)),
+            ("value", TypeSymbol.Any));
 
+    public static FunctionSymbol RandomFloat { get; } =
         Create(
             "random",
-            TypeSymbol.Float),
+            TypeSymbol.Float);
 
+    public static FunctionSymbol RandomInt { get; } =
         Create(
             "random",
             TypeSymbol.Int,
             ("min", TypeSymbol.Int),
-            ("max", TypeSymbol.Int))
+            ("max", TypeSymbol.Int));
+
+    private static readonly FunctionSymbol[] Functions =
+    [
+        Log,
+        Input,
+        Length,
+        ToIntFromString,
+        ToIntFromFloat,
+        ToFloatFromString,
+        ToFloatFromInt,
+        ToString,
+        RandomFloat,
+        RandomInt
     ];
 
     public static IReadOnlyList<FunctionSymbol> All => Functions;

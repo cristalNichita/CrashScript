@@ -1,0 +1,5 @@
+log("The program started.");
+
+10 / 0;
+
+log("This line must never execute.");
