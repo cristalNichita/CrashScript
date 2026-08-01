@@ -9,17 +9,23 @@ namespace CrashScript.Language.Runtime;
 public sealed class Interpreter
 {
     private readonly NativeFunctionDispatcher _nativeFunctions;
+    private readonly RuntimeEnvironment _environment;
 
     public Interpreter(
         ICrashConsole? console = null,
-        Random? random = null)
+        Random? random = null,
+        RuntimeEnvironment? environment = null)
     {
         console ??= new SystemCrashConsole();
         random ??= Random.Shared;
 
-        _nativeFunctions = new NativeFunctionDispatcher(
-            console,
-            random);
+        _environment =
+            environment ?? new RuntimeEnvironment();
+
+        _nativeFunctions =
+            new NativeFunctionDispatcher(
+                console,
+                random);
     }
 
     public ExecutionResult Execute(
@@ -55,6 +61,9 @@ public sealed class Interpreter
     {
         return statement switch
         {
+            BoundVariableDeclaration declaration =>
+                ExecuteVariableDeclaration(declaration),
+
             BoundExpressionStatement expressionStatement =>
                 EvaluateExpression(
                     expressionStatement.Expression),
@@ -62,6 +71,20 @@ public sealed class Interpreter
             _ => throw new InvalidOperationException(
                 $"Unsupported bound statement: {statement.GetType().Name}")
         };
+    }
+    
+    private object? ExecuteVariableDeclaration(
+        BoundVariableDeclaration declaration)
+    {
+        object? value =
+            EvaluateExpression(
+                declaration.Initializer);
+
+        _environment.Define(
+            declaration.Variable,
+            value);
+
+        return null;
     }
 
     private object? EvaluateExpression(
@@ -71,6 +94,14 @@ public sealed class Interpreter
         {
             BoundLiteralExpression literal =>
                 literal.Value,
+
+            BoundVariableExpression variable =>
+                _environment.Get(
+                    variable.Variable),
+
+            BoundAssignmentExpression assignment =>
+                EvaluateAssignmentExpression(
+                    assignment),
 
             BoundConversionExpression conversion =>
                 EvaluateConversion(conversion),
@@ -91,6 +122,20 @@ public sealed class Interpreter
             _ => throw new InvalidOperationException(
                 $"Unsupported bound expression: {expression.GetType().Name}")
         };
+    }
+    
+    private object? EvaluateAssignmentExpression(
+        BoundAssignmentExpression assignment)
+    {
+        object? value =
+            EvaluateExpression(
+                assignment.Expression);
+
+        _environment.Assign(
+            assignment.Variable,
+            value);
+
+        return value;
     }
 
     private object? EvaluateConversion(

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Xml.Serialization;
 using CrashScript.Language.Binding.Nodes;
 
 namespace CrashScript.Language.Binding;
@@ -74,6 +75,12 @@ public static class BoundTreePrinter
 
             BoundCallExpression call =>
                 call.Arguments,
+            
+            BoundVariableDeclaration declaration =>
+                [declaration.Initializer],
+            
+            BoundAssignmentExpression assignment =>
+                [assignment.Expression],
 
             _ => []
         };
@@ -106,6 +113,15 @@ public static class BoundTreePrinter
 
             BoundErrorExpression =>
                 "BoundErrorExpression",
+            
+            BoundVariableDeclaration declaration =>
+                $"BoundVariableDeclaration ({declaration.Variable})",
+
+            BoundVariableExpression variable =>
+                $"BoundVariableExpression ({variable.Variable.Name} : {variable.Type.Name})",
+
+            BoundAssignmentExpression assignment =>
+                $"BoundAssignmentExpression ({assignment.Variable.Name} : {assignment.Type.Name})",
 
             _ => node.GetType().Name
         };

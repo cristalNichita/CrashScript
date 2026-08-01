@@ -2,6 +2,7 @@ using CrashScript.Language.Binding.Nodes;
 using CrashScript.Language.Binding.Symbols;
 using CrashScript.Language.Diagnostics;
 using CrashScript.Language.Lexing;
+using CrashScript.Language.Source;
 using CrashScript.Language.Syntax;
 using CrashScript.Language.Syntax.Expressions;
 using CrashScript.Language.Syntax.Statements;
@@ -11,6 +12,7 @@ namespace CrashScript.Language.Binding;
 public sealed class Binder
 {
     private readonly DiagnosticBag _diagnostics = new();
+    private readonly BoundScope _scope = new(parent: null);
 
     public BindResult Bind(CompilationUnitSyntax syntax)
     {
@@ -34,6 +36,9 @@ public sealed class Binder
     {
         return syntax switch
         {
+            VariableDeclarationStatementSyntax declaration =>
+                BindVariableDeclarationStatement(declaration),
+            
             ExpressionStatementSyntax expressionStatement =>
                 BindExpressionStatement(expressionStatement),
 
@@ -52,6 +57,72 @@ public sealed class Binder
             expression,
             syntax.Span);
     }
+    
+    private BoundVariableDeclaration
+        BindVariableDeclarationStatement(
+            VariableDeclarationStatementSyntax syntax)
+    {
+        BoundExpression initializer =
+            BindExpression(syntax.Initializer);
+
+        TypeSymbol variableType;
+
+        if (syntax.UsesTypeInference)
+        {
+            variableType = InferVariableType(
+                syntax,
+                initializer);
+        }
+        else
+        {
+            if (syntax.DeclaredType is null)
+            {
+                variableType = TypeSymbol.Error;
+            }
+            else
+            {
+                variableType =
+                    BindType(syntax.DeclaredType);
+            }
+
+            if (variableType == TypeSymbol.Void)
+            {
+                _diagnostics.Report(
+                    DiagnosticCodes.InvalidVariableType,
+                    DiagnosticCategory.Type,
+                    "Variables cannot have type `void`.",
+                    syntax.DeclaredType?.Span ??
+                    syntax.IdentifierToken.Span);
+
+                variableType = TypeSymbol.Error;
+            }
+
+            initializer = BindConversion(
+                initializer,
+                variableType,
+                syntax.Initializer.Span);
+        }
+
+        var variable = new VariableSymbol(
+            syntax.Name,
+            variableType,
+            syntax.IsFixed);
+
+        if (!_scope.TryDeclareVariable(variable))
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.VariableAlreadyDeclared,
+                DiagnosticCategory.Type,
+                $"Variable `{syntax.Name}` is already declared in this scope.",
+                syntax.IdentifierToken.Span,
+                "Use a different name or assign to the existing variable.");
+        }
+
+        return new BoundVariableDeclaration(
+            variable,
+            initializer,
+            syntax.Span);
+    }
 
     private BoundExpression BindExpression(
         ExpressionSyntax syntax)
@@ -63,6 +134,9 @@ public sealed class Binder
 
             NameExpressionSyntax name =>
                 BindNameExpression(name),
+
+            AssignmentExpressionSyntax assignment =>
+                BindAssignmentExpression(assignment),
 
             ParenthesizedExpressionSyntax parenthesized =>
                 BindExpression(parenthesized.Expression),
@@ -108,6 +182,16 @@ public sealed class Binder
     private BoundExpression BindNameExpression(
         NameExpressionSyntax syntax)
     {
+        VariableSymbol? variable =
+            _scope.LookupVariable(syntax.Name);
+
+        if (variable is not null)
+        {
+            return new BoundVariableExpression(
+                variable,
+                syntax.Span);
+        }
+
         IReadOnlyList<FunctionSymbol> functions =
             BuiltinFunctions.Find(syntax.Name);
 
@@ -120,7 +204,8 @@ public sealed class Binder
                 syntax.Span,
                 $"Try `{syntax.Name}(...);`.");
 
-            return new BoundErrorExpression(syntax.Span);
+            return new BoundErrorExpression(
+                syntax.Span);
         }
 
         _diagnostics.Report(
@@ -128,10 +213,76 @@ public sealed class Binder
             DiagnosticCategory.Type,
             $"Name `{syntax.Name}` is not defined.",
             syntax.Span,
-            "Variables will become available after they are declared with `memory` or `fixed`.",
+            "Declare the variable with `memory` or `fixed`.",
             "The computer refuses to invent missing variables.");
 
-        return new BoundErrorExpression(syntax.Span);
+        return new BoundErrorExpression(
+            syntax.Span);
+    }
+    
+    private BoundExpression BindAssignmentExpression(
+        AssignmentExpressionSyntax syntax)
+    {
+        BoundExpression value =
+            BindExpression(syntax.Value);
+
+        if (syntax.Target is not NameExpressionSyntax nameSyntax)
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.InvalidAssignmentTarget,
+                DiagnosticCategory.Type,
+                "The left side of an assignment must be a variable.",
+                syntax.Target.Span);
+
+            return new BoundErrorExpression(
+                syntax.Span);
+        }
+
+        VariableSymbol? variable =
+            _scope.LookupVariable(nameSyntax.Name);
+
+        if (variable is null)
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.UndefinedName,
+                DiagnosticCategory.Type,
+                $"Variable `{nameSyntax.Name}` is not defined.",
+                nameSyntax.Span,
+                $"Declare it first with `memory {nameSyntax.Name} := ...;`.");
+
+            return new BoundErrorExpression(
+                syntax.Span);
+        }
+
+        if (variable.IsReadOnly)
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.CannotAssignFixed,
+                DiagnosticCategory.Type,
+                $"Cannot assign to fixed value `{variable.Name}`.",
+                nameSyntax.Span,
+                "`fixed` values cannot be changed after declaration.");
+
+            return new BoundErrorExpression(
+                syntax.Span);
+        }
+
+        BoundExpression convertedValue =
+            BindConversion(
+                value,
+                variable.Type,
+                syntax.Value.Span);
+
+        if (convertedValue.Type == TypeSymbol.Error)
+        {
+            return new BoundErrorExpression(
+                syntax.Span);
+        }
+
+        return new BoundAssignmentExpression(
+            variable,
+            convertedValue,
+            syntax.Span);
     }
 
     private BoundExpression BindUnaryExpression(
@@ -577,6 +728,21 @@ public sealed class Binder
 
             return new BoundErrorExpression(syntax.Span);
         }
+        
+        VariableSymbol? variable =
+            _scope.LookupVariable(nameSyntax.Name);
+
+        if (variable is not null)
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.ExpressionIsNotCallable,
+                DiagnosticCategory.Type,
+                $"Variable `{variable.Name}` cannot be called as a function.",
+                nameSyntax.Span);
+
+            return new BoundErrorExpression(
+                syntax.Span);
+        }
 
         IReadOnlyList<FunctionSymbol> candidates =
             BuiltinFunctions.Find(nameSyntax.Name);
@@ -701,6 +867,45 @@ public sealed class Binder
             selected.Function.ReturnType,
             syntax.Span);
     }
+    
+    private BoundExpression BindConversion(
+        BoundExpression expression,
+        TypeSymbol targetType,
+        SourceSpan diagnosticSpan)
+    {
+        if (expression.Type == TypeSymbol.Error ||
+            targetType == TypeSymbol.Error)
+        {
+            return new BoundErrorExpression(
+                diagnosticSpan);
+        }
+
+        Conversion conversion = Conversion.Classify(
+            expression.Type,
+            targetType);
+
+        if (!conversion.Exists)
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.CannotConvertType,
+                DiagnosticCategory.Type,
+                $"Cannot convert type `{expression.Type.Name}` to `{targetType.Name}`.",
+                diagnosticSpan);
+
+            return new BoundErrorExpression(
+                diagnosticSpan);
+        }
+
+        if (conversion.IsIdentity)
+        {
+            return expression;
+        }
+
+        return new BoundConversionExpression(
+            expression,
+            targetType,
+            expression.Span);
+    }
 
     private BoundExpression Convert(
         BoundExpression expression,
@@ -776,6 +981,83 @@ public sealed class Binder
             "The left operand of `??` must be nullable.");
 
         return new BoundErrorExpression(syntax.Span);
+    }
+    
+    private TypeSymbol InferVariableType(
+        VariableDeclarationStatementSyntax syntax,
+        BoundExpression initializer)
+    {
+        if (initializer.Type == TypeSymbol.Error)
+        {
+            return TypeSymbol.Error;
+        }
+
+        if (initializer.Type == TypeSymbol.Null)
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.CannotInferType,
+                DiagnosticCategory.Type,
+                $"Cannot infer the type of variable `{syntax.Name}` from `null`.",
+                syntax.Initializer.Span,
+                "Declare an explicit nullable type, for example `string?`.");
+
+            return TypeSymbol.Error;
+        }
+
+        if (initializer.Type == TypeSymbol.Void)
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.CannotInferType,
+                DiagnosticCategory.Type,
+                $"Cannot infer the type of variable `{syntax.Name}` from a `void` expression.",
+                syntax.Initializer.Span);
+
+            return TypeSymbol.Error;
+        }
+
+        return initializer.Type;
+    }
+    
+    private TypeSymbol BindType(TypeSyntax syntax)
+    {
+        TypeSymbol type = syntax.Name switch
+        {
+            "int" => TypeSymbol.Int,
+            "float" => TypeSymbol.Float,
+            "string" => TypeSymbol.String,
+            "bool" => TypeSymbol.Bool,
+            "void" => TypeSymbol.Void,
+            _ => TypeSymbol.Error
+        };
+
+        if (type == TypeSymbol.Error)
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.UnknownType,
+                DiagnosticCategory.Type,
+                $"Type `{syntax.Name}` does not exist.",
+                syntax.NameToken.Span);
+
+            return TypeSymbol.Error;
+        }
+
+        if (!syntax.IsNullable)
+        {
+            return type;
+        }
+
+        if (type == TypeSymbol.Void)
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.InvalidVariableType,
+                DiagnosticCategory.Type,
+                "Type `void` cannot be nullable.",
+                syntax.Span);
+
+            return TypeSymbol.Error;
+        }
+
+        return TypeSymbol.Nullable(type);
     }
 
     private static bool IsNumeric(TypeSymbol type)

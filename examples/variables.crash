@@ -1,0 +1,22 @@
+// CrashScript variables and type inference.
+
+memory score: int = 10;
+memory bonus := 5;
+
+fixed maxScore: int = 100;
+
+log("Initial score: " + toString(score));
+
+score = score + bonus;
+
+log("Updated score: " + toString(score));
+log("Maximum score: " + toString(maxScore));
+
+memory preciseScore: float = score;
+
+log("Precise score: " + toString(preciseScore));
+
+memory nickname: string? = null;
+memory displayName: string = nickname ?? "Unknown Player";
+
+log("Player: " + displayName);

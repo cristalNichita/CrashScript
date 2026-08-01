@@ -41,7 +41,7 @@ public sealed class Parser
         {
             return _tokens[^1];
         }
-        
+
         return _tokens[index];
     }
 
@@ -52,17 +52,17 @@ public sealed class Parser
         while (Current.Type != TokenType.EndOfFile)
         {
             int startPosition = _position;
-            
+
             statements.Add(ParseStatement());
-            
-            // Defensive recovery: never allow the parser to become stuck.
+
             if (_position == startPosition)
             {
                 NextToken();
             }
         }
 
-        Token endOfFileToken = MatchToken(TokenType.EndOfFile);
+        Token endOfFileToken =
+            MatchToken(TokenType.EndOfFile);
 
         var root = new CompilationUnitSyntax(
             statements.ToArray(),
@@ -75,13 +75,93 @@ public sealed class Parser
 
     private StatementSyntax ParseStatement()
     {
-        return ParseExpressionStatement();
+        return Current.Type switch
+        {
+            TokenType.MemoryKeyword or
+            TokenType.FixedKeyword =>
+                ParseVariableDeclarationStatement(),
+
+            _ => ParseExpressionStatement()
+        };
     }
 
-    private ExpressionStatementSyntax ParseExpressionStatement()
+    private VariableDeclarationStatementSyntax
+        ParseVariableDeclarationStatement()
     {
-        ExpressionSyntax expression = ParseExpression();
-        Token semicolonToken = MatchSemicolon();
+        Token declarationKeyword = NextToken();
+
+        Token identifierToken =
+            MatchToken(TokenType.Identifier);
+
+        Token? colonToken = null;
+        TypeSyntax? declaredType = null;
+        Token assignmentToken;
+
+        if (Current.Type == TokenType.ColonEqual)
+        {
+            assignmentToken = NextToken();
+        }
+        else
+        {
+            colonToken = MatchToken(
+                TokenType.Colon);
+
+            declaredType = ParseTypeSyntax();
+
+            assignmentToken = MatchToken(
+                TokenType.Equal);
+        }
+
+        ExpressionSyntax initializer =
+            ParseExpression();
+
+        Token semicolonToken =
+            MatchSemicolon();
+
+        return new VariableDeclarationStatementSyntax(
+            declarationKeyword,
+            identifierToken,
+            colonToken,
+            declaredType,
+            assignmentToken,
+            initializer,
+            semicolonToken);
+    }
+
+    private TypeSyntax ParseTypeSyntax()
+    {
+        Token nameToken;
+
+        if (IsTypeNameToken(Current.Type))
+        {
+            nameToken = NextToken();
+        }
+        else
+        {
+            nameToken = MatchToken(
+                TokenType.Identifier);
+        }
+
+        Token? questionToken = null;
+
+        if (Current.Type == TokenType.Question)
+        {
+            questionToken = NextToken();
+        }
+
+        return new TypeSyntax(
+            nameToken,
+            questionToken);
+    }
+
+    private ExpressionStatementSyntax
+        ParseExpressionStatement()
+    {
+        ExpressionSyntax expression =
+            ParseExpression();
+
+        Token semicolonToken =
+            MatchSemicolon();
 
         return new ExpressionStatementSyntax(
             expression,
@@ -90,16 +170,34 @@ public sealed class Parser
 
     private ExpressionSyntax ParseExpression()
     {
-        return ParseNullCoalescingExpression();
+        return ParseAssignmentExpression();
     }
 
-    /// <summary>
-    /// Parses the right-associative null-coalescing operator.
-    /// a ?? b ?? c becomes a ?? (b ?? c).
-    /// </summary>
+    private ExpressionSyntax ParseAssignmentExpression()
+    {
+        ExpressionSyntax target =
+            ParseNullCoalescingExpression();
+
+        if (Current.Type != TokenType.Equal)
+        {
+            return target;
+        }
+
+        Token equalsToken = NextToken();
+
+        ExpressionSyntax value =
+            ParseAssignmentExpression();
+
+        return new AssignmentExpressionSyntax(
+            target,
+            equalsToken,
+            value);
+    }
+
     private ExpressionSyntax ParseNullCoalescingExpression()
     {
-        ExpressionSyntax left = ParseOrExpression();
+        ExpressionSyntax left =
+            ParseOrExpression();
 
         if (Current.Type != TokenType.QuestionQuestion)
         {
@@ -107,7 +205,9 @@ public sealed class Parser
         }
 
         Token operatorToken = NextToken();
-        ExpressionSyntax right = ParseNullCoalescingExpression();
+
+        ExpressionSyntax right =
+            ParseNullCoalescingExpression();
 
         return new BinaryExpressionSyntax(
             left,
@@ -117,12 +217,15 @@ public sealed class Parser
 
     private ExpressionSyntax ParseOrExpression()
     {
-        ExpressionSyntax left = ParseAndExpression();
+        ExpressionSyntax left =
+            ParseAndExpression();
 
         while (Current.Type == TokenType.OrKeyword)
         {
             Token operatorToken = NextToken();
-            ExpressionSyntax right = ParseAndExpression();
+
+            ExpressionSyntax right =
+                ParseAndExpression();
 
             left = new BinaryExpressionSyntax(
                 left,
@@ -135,32 +238,38 @@ public sealed class Parser
 
     private ExpressionSyntax ParseAndExpression()
     {
-        ExpressionSyntax left = ParseEqualityExpression();
+        ExpressionSyntax left =
+            ParseEqualityExpression();
 
         while (Current.Type == TokenType.AndKeyword)
         {
             Token operatorToken = NextToken();
-            ExpressionSyntax right = ParseEqualityExpression();
+
+            ExpressionSyntax right =
+                ParseEqualityExpression();
 
             left = new BinaryExpressionSyntax(
                 left,
                 operatorToken,
                 right);
         }
-        
+
         return left;
     }
 
     private ExpressionSyntax ParseEqualityExpression()
     {
-        ExpressionSyntax left = ParseComparisonExpression();
+        ExpressionSyntax left =
+            ParseComparisonExpression();
 
         while (Current.Type is
                TokenType.EqualEqual or
                TokenType.BangEqual)
         {
             Token operatorToken = NextToken();
-            ExpressionSyntax right = ParseComparisonExpression();
+
+            ExpressionSyntax right =
+                ParseComparisonExpression();
 
             left = new BinaryExpressionSyntax(
                 left,
@@ -170,10 +279,11 @@ public sealed class Parser
 
         return left;
     }
-    
+
     private ExpressionSyntax ParseComparisonExpression()
     {
-        ExpressionSyntax left = ParseTermExpression();
+        ExpressionSyntax left =
+            ParseTermExpression();
 
         while (Current.Type is
                TokenType.Greater or
@@ -182,7 +292,9 @@ public sealed class Parser
                TokenType.LessEqual)
         {
             Token operatorToken = NextToken();
-            ExpressionSyntax right = ParseTermExpression();
+
+            ExpressionSyntax right =
+                ParseTermExpression();
 
             left = new BinaryExpressionSyntax(
                 left,
@@ -195,14 +307,17 @@ public sealed class Parser
 
     private ExpressionSyntax ParseTermExpression()
     {
-        ExpressionSyntax left = ParseFactorExpression();
+        ExpressionSyntax left =
+            ParseFactorExpression();
 
         while (Current.Type is
                TokenType.Plus or
                TokenType.Minus)
         {
             Token operatorToken = NextToken();
-            ExpressionSyntax right = ParseFactorExpression();
+
+            ExpressionSyntax right =
+                ParseFactorExpression();
 
             left = new BinaryExpressionSyntax(
                 left,
@@ -215,7 +330,8 @@ public sealed class Parser
 
     private ExpressionSyntax ParseFactorExpression()
     {
-        ExpressionSyntax left = ParseUnaryExpression();
+        ExpressionSyntax left =
+            ParseUnaryExpression();
 
         while (Current.Type is
                TokenType.Star or
@@ -223,7 +339,9 @@ public sealed class Parser
                TokenType.Percent)
         {
             Token operatorToken = NextToken();
-            ExpressionSyntax right = ParseUnaryExpression();
+
+            ExpressionSyntax right =
+                ParseUnaryExpression();
 
             left = new BinaryExpressionSyntax(
                 left,
@@ -241,7 +359,9 @@ public sealed class Parser
             TokenType.NotKeyword)
         {
             Token operatorToken = NextToken();
-            ExpressionSyntax operand = ParseUnaryExpression();
+
+            ExpressionSyntax operand =
+                ParseUnaryExpression();
 
             return new UnaryExpressionSyntax(
                 operatorToken,
@@ -253,11 +373,14 @@ public sealed class Parser
 
     private ExpressionSyntax ParseCallExpression()
     {
-        ExpressionSyntax expression = ParsePrimaryExpression();
+        ExpressionSyntax expression =
+            ParsePrimaryExpression();
 
-        while (Current.Type == TokenType.LeftParenthesis)
+        while (Current.Type ==
+               TokenType.LeftParenthesis)
         {
-            expression = FinishCallExpression(expression);
+            expression =
+                FinishCallExpression(expression);
         }
 
         return expression;
@@ -269,14 +392,16 @@ public sealed class Parser
         Token openParenthesisToken =
             MatchToken(TokenType.LeftParenthesis);
 
-        var arguments = new List<ExpressionSyntax>();
+        var arguments =
+            new List<ExpressionSyntax>();
 
         if (Current.Type != TokenType.RightParenthesis &&
             Current.Type != TokenType.EndOfFile)
         {
             while (true)
             {
-                arguments.Add(ParseExpression());
+                arguments.Add(
+                    ParseExpression());
 
                 if (Current.Type != TokenType.Comma)
                 {
@@ -349,11 +474,15 @@ public sealed class Parser
 
             case TokenType.LeftParenthesis:
             {
-                Token openParenthesisToken = NextToken();
-                ExpressionSyntax expression = ParseExpression();
+                Token openParenthesisToken =
+                    NextToken();
+
+                ExpressionSyntax expression =
+                    ParseExpression();
 
                 Token closeParenthesisToken =
-                    MatchToken(TokenType.RightParenthesis);
+                    MatchToken(
+                        TokenType.RightParenthesis);
 
                 return new ParenthesizedExpressionSyntax(
                     openParenthesisToken,
@@ -370,9 +499,11 @@ public sealed class Parser
     {
         Token unexpectedToken = Current;
 
-        string foundText = unexpectedToken.Type == TokenType.EndOfFile
-            ? "end of file"
-            : $"`{unexpectedToken.Text}`";
+        string foundText =
+            unexpectedToken.Type ==
+            TokenType.EndOfFile
+                ? "end of file"
+                : $"`{unexpectedToken.Text}`";
 
         _diagnostics.Report(
             DiagnosticCodes.ExpectedExpression,
@@ -407,7 +538,7 @@ public sealed class Parser
         _diagnostics.Report(
             DiagnosticCodes.ExpectedSemicolon,
             DiagnosticCategory.Parser,
-            "Expected `;` after expression.",
+            "Expected `;` after statement.",
             Current.Span,
             "Every CrashScript statement must end with a semicolon.",
             "The statement survived. Its semicolon did not.");
@@ -424,9 +555,10 @@ public sealed class Parser
             return NextToken();
         }
 
-        string currentText = Current.Type == TokenType.EndOfFile
-            ? "<eof>"
-            : Current.Text;
+        string currentText =
+            Current.Type == TokenType.EndOfFile
+                ? "<eof>"
+                : Current.Text;
 
         _diagnostics.Report(
             DiagnosticCodes.UnexpectedToken,
@@ -458,5 +590,17 @@ public sealed class Parser
         _position++;
 
         return current;
+    }
+
+    private static bool IsTypeNameToken(
+        TokenType type)
+    {
+        return type is
+            TokenType.IntKeyword or
+            TokenType.FloatKeyword or
+            TokenType.StringKeyword or
+            TokenType.BoolKeyword or
+            TokenType.VoidKeyword or
+            TokenType.Identifier;
     }
 }

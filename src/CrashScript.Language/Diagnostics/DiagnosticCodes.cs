@@ -22,6 +22,13 @@ public static class DiagnosticCodes
     public const string IncorrectArgumentCount = "CRASH-T306";
     public const string NoMatchingOverload = "CRASH-T307";
     public const string InvalidNullCoalescing = "CRASH-T308";
+    public const string UnknownType = "CRASH-T309";
+    public const string VariableAlreadyDeclared = "CRASH-T310";
+    public const string CannotConvertType = "CRASH-T311";
+    public const string CannotAssignFixed = "CRASH-T312";
+    public const string InvalidAssignmentTarget = "CRASH-T313";
+    public const string CannotInferType = "CRASH-T314";
+    public const string InvalidVariableType = "CRASH-T315";
 
     // Runtime errors
     public const string GuardFailed = "CRASH-R401";

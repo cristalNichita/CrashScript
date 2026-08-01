@@ -35,9 +35,12 @@ public static class SyntaxTreePrinter
         string childIndent =
             indent + (isLast ? "    " : "│   ");
 
-        SyntaxNode[] children = GetChildren(node).ToArray();
+        SyntaxNode[] children =
+            GetChildren(node).ToArray();
 
-        for (int index = 0; index < children.Length; index++)
+        for (int index = 0;
+             index < children.Length;
+             index++)
         {
             WriteNode(
                 builder,
@@ -55,26 +58,35 @@ public static class SyntaxTreePrinter
             CompilationUnitSyntax compilationUnit =>
                 compilationUnit.Statements,
 
+            VariableDeclarationStatementSyntax declaration =>
+                [declaration.Initializer],
+
             ExpressionStatementSyntax expressionStatement =>
                 [expressionStatement.Expression],
 
-            ParenthesizedExpressionSyntax parenthesizedExpression =>
-                [parenthesizedExpression.Expression],
-
-            UnaryExpressionSyntax unaryExpression =>
-                [unaryExpression.Operand],
-
-            BinaryExpressionSyntax binaryExpression =>
+            AssignmentExpressionSyntax assignment =>
                 [
-                    binaryExpression.Left,
-                    binaryExpression.Right
+                    assignment.Target,
+                    assignment.Value
                 ],
 
-            CallExpressionSyntax callExpression =>
+            ParenthesizedExpressionSyntax parenthesized =>
+                [parenthesized.Expression],
+
+            UnaryExpressionSyntax unary =>
+                [unary.Operand],
+
+            BinaryExpressionSyntax binary =>
+                [
+                    binary.Left,
+                    binary.Right
+                ],
+
+            CallExpressionSyntax call =>
                 new SyntaxNode[]
                 {
-                    callExpression.Callee
-                }.Concat(callExpression.Arguments),
+                    call.Callee
+                }.Concat(call.Arguments),
 
             _ => []
         };
@@ -87,8 +99,14 @@ public static class SyntaxTreePrinter
             CompilationUnitSyntax =>
                 "CompilationUnit",
 
+            VariableDeclarationStatementSyntax declaration =>
+                GetVariableDeclarationLabel(declaration),
+
             ExpressionStatementSyntax =>
                 "ExpressionStatement",
+
+            AssignmentExpressionSyntax =>
+                "AssignmentExpression",
 
             LiteralExpressionSyntax literal =>
                 $"LiteralExpression ({FormatValue(literal.Value)})",
@@ -111,8 +129,32 @@ public static class SyntaxTreePrinter
             ErrorExpressionSyntax =>
                 "ErrorExpression",
 
+            TypeSyntax type =>
+                $"TypeSyntax ({type.Name}{(type.IsNullable ? "?" : string.Empty)})",
+
             _ => node.GetType().Name
         };
+    }
+
+    private static string GetVariableDeclarationLabel(
+        VariableDeclarationStatementSyntax declaration)
+    {
+        string keyword =
+            declaration.IsFixed
+                ? "fixed"
+                : "memory";
+
+        string type = declaration.UsesTypeInference
+            ? "inferred"
+            : declaration.DeclaredType is null
+                ? "<missing>"
+                : declaration.DeclaredType.Name +
+                  (declaration.DeclaredType.IsNullable
+                      ? "?"
+                      : string.Empty);
+
+        return
+            $"VariableDeclaration ({keyword} {declaration.Name} : {type})";
     }
 
     private static string FormatValue(object? value)
@@ -122,10 +164,12 @@ public static class SyntaxTreePrinter
             null => "null",
             string text => $"\"{Escape(text)}\"",
             bool boolean => boolean ? "true" : "false",
+
             IFormattable formattable =>
                 formattable.ToString(
                     null,
                     CultureInfo.InvariantCulture),
+
             _ => value.ToString() ?? "null"
         };
     }
