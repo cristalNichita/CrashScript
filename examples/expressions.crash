@@ -1,15 +1,19 @@
-// CrashScript expression parser preview.
+// CrashScript expression type checker preview.
 
 log("Hello from CrashScript");
 
 1 + 2 * 3;
 (1 + 2) * 3;
 
+10 + 2.5;
+10 / 4;
+
 not false and true;
-health > 0 and alive;
-score >= 100 or score == 42;
+10 > 0 and true;
+100 >= 100 or 42 == 42;
 
 random(1, 10) + 5;
 toString(random(1, 100));
 
-playerName ?? "Unknown Player";
+null ?? "Unknown Player";
+toInt("42") ?? 0;

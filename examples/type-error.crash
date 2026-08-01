@@ -1,0 +1,9 @@
+// Intentional CrashScript type errors.
+
+"Crash" - 10;
+
+not 42;
+
+random("one", 10);
+
+unknownFunction();

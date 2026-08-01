@@ -4,7 +4,6 @@ using CrashScript.Language.Parsing;
 using CrashScript.Language.Source;
 using CrashScript.Language.Syntax.Expressions;
 using CrashScript.Language.Syntax.Statements;
-using Xunit;
 
 namespace CrashScript.Tests;
 

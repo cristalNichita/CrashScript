@@ -1,3 +1,4 @@
+using CrashScript.Language.Binding;
 using CrashScript.Language.Diagnostics;
 using CrashScript.Language.Lexing;
 using CrashScript.Language.Parsing;
@@ -38,7 +39,9 @@ public sealed class CrashScriptEngine
 
         string sourceCode = File.ReadAllText(fullPath);
 
-        return new SourceText(fullPath, sourceCode);
+        return new SourceText(
+            fullPath,
+            sourceCode);
     }
 
     public LexResult Tokenize(SourceText source)
@@ -68,7 +71,8 @@ public sealed class CrashScriptEngine
 
         Diagnostic[] diagnostics = lexResult.Diagnostics
             .Concat(parseResult.Diagnostics)
-            .OrderBy(diagnostic => diagnostic.Span.Start)
+            .OrderBy(diagnostic =>
+                diagnostic.Span.Start)
             .ToArray();
 
         return new ParseResult(
@@ -81,5 +85,33 @@ public sealed class CrashScriptEngine
         SourceText source = LoadSourceFile(filePath);
 
         return Parse(source);
+    }
+
+    public BindResult Bind(SourceText source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        ParseResult parseResult = Parse(source);
+
+        var binder = new Binder();
+        BindResult bindResult = binder.Bind(
+            parseResult.Root);
+
+        Diagnostic[] diagnostics = parseResult.Diagnostics
+            .Concat(bindResult.Diagnostics)
+            .OrderBy(diagnostic =>
+                diagnostic.Span.Start)
+            .ToArray();
+
+        return new BindResult(
+            bindResult.Root,
+            diagnostics);
+    }
+
+    public BindResult BindFile(string filePath)
+    {
+        SourceText source = LoadSourceFile(filePath);
+
+        return Bind(source);
     }
 }
