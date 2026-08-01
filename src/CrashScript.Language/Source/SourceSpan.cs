@@ -39,7 +39,10 @@ public readonly record struct SourceSpan
     {
         get
         {
-            if (Length == 0) return string.Empty;
+            if (Length == 0)
+            {
+                return string.Empty;
+            }
 
             return Source.Text.Substring(Start, Length);
         }
@@ -48,5 +51,27 @@ public readonly record struct SourceSpan
     public static SourceSpan Empty(SourceText source, int position)
     {
         return new SourceSpan(source, position, 0);
+    }
+
+    public static SourceSpan FromBounds(
+        SourceSpan first,
+        SourceSpan last)
+    {
+        if (!ReferenceEquals(first.Source, last.Source))
+        {
+            throw new InvalidOperationException(
+                "Cannot combine spans from different source files.");
+        }
+
+        if (last.End < first.Start)
+        {
+            throw new InvalidOperationException(
+                "The ending span cannot appear before the starting span.");
+        }
+
+        return new SourceSpan(
+            first.Source,
+            first.Start,
+            last.End - first.Start);
     }
 }

@@ -2,7 +2,9 @@ using System.Globalization;
 using CrashScript.Language;
 using CrashScript.Language.Diagnostics;
 using CrashScript.Language.Lexing;
+using CrashScript.Language.Parsing;
 using CrashScript.Language.Source;
+using CrashScript.Language.Syntax;
 
 namespace CrashScript.Cli;
 
@@ -14,6 +16,7 @@ internal static class Program
     private const int InvalidArgumentsExitCode = 1;
     private const int FileErrorExitCode = 2;
     private const int LexerErrorExitCode = 3;
+    private const int ParserErrorExitCode = 4;
 
     public static int Main(string[] args)
     {
@@ -25,8 +28,8 @@ internal static class Program
 
         if (!TryParseArguments(
                 args,
-                out string? filePath,
-                out bool printTokens))
+                out string filePath,
+                out OutputMode outputMode))
         {
             PrintUsage();
             return InvalidArgumentsExitCode;
@@ -35,27 +38,19 @@ internal static class Program
         try
         {
             var engine = new CrashScriptEngine();
-
             SourceText source = engine.LoadSourceFile(filePath);
-            LexResult result = engine.Tokenize(source);
 
-            if (printTokens)
+            return outputMode switch
             {
-                PrintTokens(result.Tokens);
-            }
+                OutputMode.Tokens =>
+                    RunLexerMode(engine, source),
 
-            if (result.Diagnostics.Count > 0)
-            {
-                PrintDiagnostics(result.Diagnostics);
-                return LexerErrorExitCode;
-            }
+                OutputMode.Ast =>
+                    RunParserMode(engine, source, printAst: true),
 
-            if (!printTokens)
-            {
-                PrintSuccess(source, result);
-            }
-
-            return SuccessExitCode;
+                _ =>
+                    RunParserMode(engine, source, printAst: false)
+            };
         }
         catch (FileNotFoundException exception)
         {
@@ -81,13 +76,68 @@ internal static class Program
         }
     }
 
+    private static int RunLexerMode(
+        CrashScriptEngine engine,
+        SourceText source)
+    {
+        LexResult result = engine.Tokenize(source);
+
+        PrintTokens(result.Tokens);
+
+        if (result.Diagnostics.Count > 0)
+        {
+            PrintDiagnostics(result.Diagnostics);
+            return LexerErrorExitCode;
+        }
+
+        return SuccessExitCode;
+    }
+
+    private static int RunParserMode(
+        CrashScriptEngine engine,
+        SourceText source,
+        bool printAst)
+    {
+        ParseResult result = engine.Parse(source);
+
+        if (result.Diagnostics.Count > 0)
+        {
+            PrintDiagnostics(result.Diagnostics);
+
+            return result.Diagnostics.Any(
+                diagnostic =>
+                    diagnostic.Category == DiagnosticCategory.Lexer)
+                ? LexerErrorExitCode
+                : ParserErrorExitCode;
+        }
+
+        if (printAst)
+        {
+            Console.WriteLine($"CrashScript {Version}");
+            Console.WriteLine();
+            Console.WriteLine("SYNTAX AST");
+            Console.WriteLine(
+                "----------------------------------------");
+            Console.WriteLine(
+                SyntaxTreePrinter.Print(result.Root));
+            Console.WriteLine(
+                "----------------------------------------");
+
+            return SuccessExitCode;
+        }
+
+        PrintParseSuccess(source, result);
+
+        return SuccessExitCode;
+    }
+
     private static bool TryParseArguments(
         string[] args,
         out string filePath,
-        out bool printTokens)
+        out OutputMode outputMode)
     {
         filePath = string.Empty;
-        printTokens = false;
+        outputMode = OutputMode.Validate;
 
         if (args.Length == 1)
         {
@@ -95,14 +145,26 @@ internal static class Program
             return true;
         }
 
-        if (args.Length == 2 && args[0] == "--tokens")
+        if (args.Length != 2)
         {
-            printTokens = true;
-            filePath = args[1];
-            return true;
+            return false;
         }
 
-        return false;
+        outputMode = args[0] switch
+        {
+            "--tokens" => OutputMode.Tokens,
+            "--ast" => OutputMode.Ast,
+            _ => OutputMode.Invalid
+        };
+
+        if (outputMode == OutputMode.Invalid)
+        {
+            return false;
+        }
+
+        filePath = args[1];
+
+        return true;
     }
 
     private static bool IsVersionArgument(string argument)
@@ -110,22 +172,21 @@ internal static class Program
         return argument is "--version" or "-v";
     }
 
-    private static void PrintSuccess(
+    private static void PrintParseSuccess(
         SourceText source,
-        LexResult result)
+        ParseResult result)
     {
-        int tokenCount = result.Tokens.Count(token =>
-            token.Type != TokenType.EndOfFile);
-
         Console.WriteLine($"CrashScript {Version}");
-        Console.WriteLine($"Lexed: {source.FileName}");
-        Console.WriteLine($"Tokens: {tokenCount}");
+        Console.WriteLine($"Parsed: {source.FileName}");
+        Console.WriteLine(
+            $"Statements: {result.Root.Statements.Count}");
         Console.WriteLine("Lexer errors: 0");
+        Console.WriteLine("Parser errors: 0");
         Console.WriteLine();
         Console.WriteLine(
-            "The source is valid at the lexical level.");
+            "The source is valid at the syntax level.");
         Console.WriteLine(
-            "Parser and interpreter are not implemented yet.");
+            "Binder and interpreter are not implemented yet.");
     }
 
     private static void PrintTokens(IReadOnlyList<Token> tokens)
@@ -166,7 +227,7 @@ internal static class Program
         IReadOnlyList<Diagnostic> diagnostics)
     {
         Console.Error.WriteLine(
-            $"CrashScript found {diagnostics.Count} lexer error(s).");
+            $"CrashScript found {diagnostics.Count} error(s).");
         Console.Error.WriteLine();
 
         for (int index = 0; index < diagnostics.Count; index++)
@@ -213,18 +274,27 @@ internal static class Program
         Console.WriteLine("Usage:");
         Console.WriteLine("  crashscript <file.crash>");
         Console.WriteLine("  crashscript --tokens <file.crash>");
+        Console.WriteLine("  crashscript --ast <file.crash>");
         Console.WriteLine("  crashscript --version");
         Console.WriteLine();
         Console.WriteLine("Development:");
         Console.WriteLine(
             "  dotnet run --project src/CrashScript.Cli -- examples/hello.crash");
         Console.WriteLine(
-            "  dotnet run --project src/CrashScript.Cli -- --tokens examples/hello.crash");
+            "  dotnet run --project src/CrashScript.Cli -- --ast examples/expressions.crash");
     }
 
     private static void PrintFileError(string message)
     {
         Console.Error.WriteLine("CrashScript could not start.");
         Console.Error.WriteLine(message);
+    }
+
+    private enum OutputMode
+    {
+        Invalid,
+        Validate,
+        Tokens,
+        Ast
     }
 }
