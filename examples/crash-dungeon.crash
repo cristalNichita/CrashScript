@@ -1,0 +1,602 @@
+// ============================================================
+// Crash Dungeon
+// A complete console game written in CrashScript.
+// ============================================================
+
+fixed totalRooms: int = 5;
+fixed healthBarWidth: int = 20;
+
+memory playerName: string =
+    input("Enter your name: ");
+
+memory className: string = "Runner";
+
+memory maxHealth: int = 100;
+memory health: int = 100;
+memory attack: int = 10;
+memory potions: int = 2;
+memory gold: int = 0;
+memory roomsCleared: int = 0;
+
+
+// ------------------------------------------------------------
+// Utility functions
+// ------------------------------------------------------------
+
+process repeat(
+    text: string,
+    count: int
+) -> string
+    if count <= 0 then
+        return "";
+    end;
+
+    return text + repeat(
+        text,
+        count - 1
+    );
+end;
+
+
+process readChoice(
+    prompt: string,
+    minimum: int,
+    maximum: int
+) -> int
+    guard minimum <= maximum
+        else "Choice minimum cannot exceed maximum";
+
+    memory choice: int =
+        toInt(input(prompt))
+        ?? (minimum - 1);
+
+    while choice < minimum or choice > maximum do
+        log(
+            "Enter a number from "
+            + toString(minimum)
+            + " to "
+            + toString(maximum)
+            + "."
+        );
+
+        choice =
+            toInt(input(prompt))
+            ?? (minimum - 1);
+    end;
+
+    return choice;
+end;
+
+
+process makeHealthBar() -> string
+    memory safeHealth: int = health;
+
+    if safeHealth < 0 then
+        safeHealth = 0;
+    end;
+
+    memory filled: int =
+        toInt(
+            (safeHealth / maxHealth)
+            * healthBarWidth
+        );
+
+    if filled > healthBarWidth then
+        filled = healthBarWidth;
+    end;
+
+    memory empty: int =
+        healthBarWidth - filled;
+
+    return
+        "["
+        + repeat("#", filled)
+        + repeat("-", empty)
+        + "]";
+end;
+
+
+process showPlayerStatus() -> void
+    log("");
+    log(playerName + " — " + className);
+
+    log(
+        "HP: "
+        + makeHealthBar()
+        + " "
+        + toString(health)
+        + "/"
+        + toString(maxHealth)
+    );
+
+    log(
+        "Attack: "
+        + toString(attack)
+        + " | Potions: "
+        + toString(potions)
+        + " | Gold: "
+        + toString(gold)
+    );
+end;
+
+
+process healPlayer(amount: int) -> void
+    guard amount >= 0
+        else "Healing amount cannot be negative";
+
+    if health <= 0 then
+        return;
+    end;
+
+    health = health + amount;
+
+    if health > maxHealth then
+        health = maxHealth;
+    end;
+end;
+
+
+// ------------------------------------------------------------
+// Character configuration
+// ------------------------------------------------------------
+
+process configureClass(choice: int) -> void
+    if choice == 1 then
+        className = "Runner";
+
+        maxHealth = 100;
+        attack = 11;
+        potions = 2;
+
+    else if choice == 2 then
+        className = "Tank";
+
+        maxHealth = 140;
+        attack = 8;
+        potions = 3;
+
+    else
+        className = "Glass Compiler";
+
+        maxHealth = 75;
+        attack = 16;
+        potions = 1;
+    end;
+
+    health = maxHealth;
+end;
+
+
+// ------------------------------------------------------------
+// Enemy generation
+// ------------------------------------------------------------
+
+process getEnemyName(kind: int) -> string
+    return select
+        when kind == 1 => "Glitch Rat";
+        when kind == 2 => "Stack Goblin";
+        when kind == 3 => "Null Wraith";
+        else => "Deadlock Knight";
+    end;
+end;
+
+
+process getEnemyHealth(room: int) -> int
+    guard room > 0
+        else "Room number must be positive";
+
+    return
+        12
+        + room * 7
+        + random(0, 6);
+end;
+
+
+process getEnemyAttack(room: int) -> int
+    guard room > 0
+        else "Room number must be positive";
+
+    return 3 + room * 2;
+end;
+
+
+// ------------------------------------------------------------
+// Combat
+// ------------------------------------------------------------
+
+process fightEnemy(
+    enemyName: string,
+    enemyHealth: int,
+    enemyAttack: int
+) -> bool
+    guard enemyHealth > 0
+        else "Enemy health must be positive";
+
+    guard enemyAttack >= 0
+        else "Enemy attack cannot be negative";
+
+    log("");
+    log(enemyName + " blocks the path.");
+
+    while enemyHealth > 0 and health > 0 do
+        showPlayerStatus();
+
+        log(
+            enemyName
+            + " HP: "
+            + toString(enemyHealth)
+        );
+
+        log("");
+        log("1. Attack");
+        log("2. Drink potion");
+        log("3. Overclock strike");
+
+        memory action: int =
+            readChoice("> ", 1, 3);
+
+        if action == 1 then
+            memory damage: int =
+                random(
+                    attack - 2,
+                    attack + 3
+                );
+
+            if damage < 1 then
+                damage = 1;
+            end;
+
+            enemyHealth =
+                enemyHealth - damage;
+
+            log(
+                "You dealt "
+                + toString(damage)
+                + " damage."
+            );
+
+        else if action == 2 then
+            if potions > 0 and health < maxHealth then
+                potions = potions - 1;
+
+                memory healing: int =
+                    random(18, 30);
+
+                healPlayer(healing);
+
+                log(
+                    "The potion restored "
+                    + toString(healing)
+                    + " health."
+                );
+            else
+                log(
+                    "You cannot use a potion right now."
+                );
+            end;
+
+        else
+            memory overclockRoll: int =
+                random(1, 100);
+
+            if overclockRoll <= 60 then
+                memory damage: int =
+                    random(
+                        attack + 4,
+                        attack + 10
+                    );
+
+                enemyHealth =
+                    enemyHealth - damage;
+
+                log(
+                    "Overclock successful. "
+                    + toString(damage)
+                    + " damage."
+                );
+            else
+                log(
+                    "The overclock crashed before the attack started."
+                );
+            end;
+        end;
+
+        if enemyHealth > 0 then
+            memory incomingDamage: int =
+                random(
+                    enemyAttack - 1,
+                    enemyAttack + 2
+                );
+
+            if incomingDamage < 1 then
+                incomingDamage = 1;
+            end;
+
+            health =
+                health - incomingDamage;
+
+            log(
+                enemyName
+                + " dealt "
+                + toString(incomingDamage)
+                + " damage."
+            );
+        end;
+    end;
+
+    if health <= 0 then
+        log("");
+        log("Your process has stopped responding.");
+
+        return false;
+    end;
+
+    memory reward: int =
+        random(6, 15)
+        + roomsCleared * 2;
+
+    gold = gold + reward;
+    roomsCleared = roomsCleared + 1;
+
+    log("");
+    log(enemyName + " was defeated.");
+
+    log(
+        "You collected "
+        + toString(reward)
+        + " gold."
+    );
+
+    return true;
+end;
+
+
+// ------------------------------------------------------------
+// Room events
+// ------------------------------------------------------------
+
+process treasureEvent() -> void
+    log("");
+    log("You found an abandoned debug cache.");
+
+    memory rewardType: int =
+        random(1, 3);
+
+    if rewardType == 1 then
+        memory foundGold: int =
+            random(12, 25);
+
+        gold = gold + foundGold;
+
+        log(
+            "Inside: "
+            + toString(foundGold)
+            + " gold."
+        );
+
+    else if rewardType == 2 then
+        potions = potions + 1;
+
+        log(
+            "Inside: one health potion."
+        );
+
+    else
+        attack = attack + 2;
+
+        log(
+            "Inside: a compiler upgrade. Attack increased by 2."
+        );
+    end;
+
+    roomsCleared = roomsCleared + 1;
+end;
+
+
+process trapEvent(room: int) -> bool
+    log("");
+    log("The floor collapses under your feet.");
+
+    memory trapDamage: int =
+        random(5, 12) + room;
+
+    health = health - trapDamage;
+    roomsCleared = roomsCleared + 1;
+
+    log(
+        "The trap dealt "
+        + toString(trapDamage)
+        + " damage."
+    );
+
+    if health <= 0 then
+        log(
+            "The dungeon converted you into a crash report."
+        );
+
+        return false;
+    end;
+
+    return true;
+end;
+
+
+process fountainEvent() -> void
+    log("");
+    log("A glowing restoration pool fills the room.");
+
+    memory healing: int =
+        random(12, 24);
+
+    healPlayer(healing);
+    roomsCleared = roomsCleared + 1;
+
+    log(
+        "You restored "
+        + toString(healing)
+        + " health."
+    );
+end;
+
+
+process runRoom(room: int) -> bool
+    log("");
+    log(repeat("=", 52));
+
+    log(
+        "ROOM "
+        + toString(room)
+        + " / "
+        + toString(totalRooms)
+    );
+
+    log(repeat("=", 52));
+
+    if room == totalRooms then
+        log("");
+        log(
+            "The dungeon begins to shake."
+        );
+
+        log(
+            "A final error emerges from the darkness."
+        );
+
+        return fightEnemy(
+            "The Segmentation Fault",
+            58,
+            12
+        );
+    end;
+
+    memory eventType: int =
+        random(1, 5);
+
+    if eventType <= 2 then
+        memory enemyKind: int =
+            random(1, 4);
+
+        return fightEnemy(
+            getEnemyName(enemyKind),
+            getEnemyHealth(room),
+            getEnemyAttack(room)
+        );
+
+    else if eventType == 3 then
+        treasureEvent();
+        return true;
+
+    else if eventType == 4 then
+        return trapEvent(room);
+
+    else
+        fountainEvent();
+        return true;
+    end;
+end;
+
+
+// ------------------------------------------------------------
+// Main game
+// ------------------------------------------------------------
+
+if length(playerName) == 0 then
+    playerName = "Crash";
+end;
+
+log("");
+log(repeat("=", 52));
+log("                 CRASH DUNGEON");
+log(repeat("=", 52));
+
+log("");
+log("Choose your process:");
+
+log(
+    "1. Runner        — balanced stats"
+);
+
+log(
+    "2. Tank          — more health, less damage"
+);
+
+log(
+    "3. Glass Compiler — high damage, low health"
+);
+
+memory classChoice: int =
+    readChoice("> ", 1, 3);
+
+configureClass(classChoice);
+
+log("");
+log(
+    playerName
+    + " entered the dungeon as a "
+    + className
+    + "."
+);
+
+memory currentRoom: int = 1;
+memory alive: bool = true;
+
+while currentRoom <= totalRooms and alive do
+    alive = runRoom(currentRoom);
+
+    if alive then
+        currentRoom = currentRoom + 1;
+    end;
+end;
+
+memory escaped: bool =
+    alive and currentRoom > totalRooms;
+
+memory ending: string = select
+    when not alive =>
+        playerName
+        + " became another unread crash report.";
+
+    when gold >= 55 =>
+        playerName
+        + " escaped with enough gold to fund CrashScript 2.0.";
+
+    when health <= 20 =>
+        playerName
+        + " escaped with one working thread remaining.";
+
+    else =>
+        playerName
+        + " escaped the dungeon successfully.";
+end;
+
+log("");
+log(repeat("=", 52));
+log("                  FINAL REPORT");
+log(repeat("=", 52));
+
+log(ending);
+
+log(
+    "Rooms cleared: "
+    + toString(roomsCleared)
+);
+
+log(
+    "Gold collected: "
+    + toString(gold)
+);
+
+log(
+    "Health remaining: "
+    + toString(health)
+    + "/"
+    + toString(maxHealth)
+);
+
+log(
+    "Result: "
+    + select
+        when escaped => "SUCCESS";
+        else => "PROCESS TERMINATED";
+    end
+);
