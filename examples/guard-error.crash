@@ -1,0 +1,11 @@
+process divide(
+	value: float,
+	divider: float
+) -> float
+	guard divider != 0
+		else "Divider cannot be zero";
+		
+	return value / divider;
+end;
+
+log(toString(divide(10, 0)));

@@ -119,6 +119,24 @@ public static class SyntaxTreePrinter
                 returnStatement.Expression is null
                     ? []
                     : [returnStatement.Expression],
+            
+            GuardStatementSyntax guardStatement =>
+            [
+                guardStatement.Condition,
+                guardStatement.Message
+            ],
+
+            SelectExpressionSyntax selectExpression =>
+                GetSelectChildren(selectExpression),
+
+            SelectBranchSyntax selectBranch =>
+            [
+                selectBranch.Condition,
+                selectBranch.Value
+            ],
+
+            SelectElseClauseSyntax selectElse =>
+                [selectElse.Value],
 
             _ => []
         };
@@ -190,6 +208,18 @@ public static class SyntaxTreePrinter
 
             ReturnStatementSyntax =>
                 "ReturnStatement",
+            
+            GuardStatementSyntax =>
+                "GuardStatement",
+
+            SelectExpressionSyntax =>
+                "SelectExpression",
+
+            SelectBranchSyntax =>
+                "SelectBranch",
+
+            SelectElseClauseSyntax =>
+                "SelectElseClause",
 
             _ => node.GetType().Name
         };
@@ -258,6 +288,17 @@ public static class SyntaxTreePrinter
         {
             yield return statement.ElseClause;
         }
+    }
+    
+    private static IEnumerable<SyntaxNode> GetSelectChildren(
+        SelectExpressionSyntax expression)
+    {
+        foreach (SelectBranchSyntax branch in expression.Branches)
+        {
+            yield return branch;
+        }
+
+        yield return expression.ElseClause;
     }
 
     private static string Escape(string text)

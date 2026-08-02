@@ -16,6 +16,12 @@ public static class DiagnosticCodes
     public const string ExpectedDo = "CRASH-P205";
     public const string ExpectedEnd = "CRASH-P206";
 
+    public const string ExpectedWhen = "CRASH-P207";
+    public const string ExpectedFatArrow = "CRASH-P208";
+    public const string ExpectedSelectElse = "CRASH-P209";
+    public const string ExpectedSelectEnd = "CRASH-P210";
+    public const string ExpectedGuardElse = "CRASH-P211";
+
     // Type and binding errors
     public const string UndefinedName = "CRASH-T301";
     public const string UnaryOperatorNotDefined = "CRASH-T302";
@@ -41,6 +47,10 @@ public static class DiagnosticCodes
     public const string CannotReturnValue = "CRASH-T321";
     public const string MissingReturn = "CRASH-T322";
     public const string ProcessMustBeTopLevel = "CRASH-T323";
+
+    public const string SelectBranchTypeMismatch = "CRASH-T324";
+    public const string SelectValueCannotBeVoid = "CRASH-T325";
+    public const string GuardMessageMustBeString = "CRASH-T326";
 
     // Runtime errors
     public const string GuardFailed = "CRASH-R401";

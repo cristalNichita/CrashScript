@@ -1,0 +1,41 @@
+// CrashScript-specific language features.
+
+process getRank(score: int) -> string
+	return select
+		when score >= 100 => "Legendary";
+		when score >= 50 => "High";
+		when score >= 10 => "Normal";
+		else => "Beginner";
+	end;
+end;
+
+process calculateDamage(
+	minimum: int,
+	maximum: int
+) -> int
+	guard minimum <= maximum
+		else "Minimum damage cannot exceed maximum damage";
+		
+	return random(minimum, maximum);
+end;
+
+memory score := 75;
+memory rank := getRank(score);
+
+log("Score: " + toString(score));
+log("Rank: " + rank);
+
+memory damage := calculateDamage(5, 12);
+
+log("Damage: " + toString(damage));
+
+memory possibleNumber: int? =
+	select
+		when score > 0 => score;
+		else => null;
+	end;
+	
+log(
+	"Stored value: "
+	+ toString(possibleNumber ?? 0)
+);

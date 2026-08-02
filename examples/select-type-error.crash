@@ -1,0 +1,4 @@
+memory result := select
+	when true => "CrashScript";
+	else => 42;
+end;

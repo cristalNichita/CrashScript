@@ -179,6 +179,9 @@ public sealed class Binder
 
             WhileStatementSyntax whileStatement =>
                 BindWhileStatement(whileStatement),
+            
+            GuardStatementSyntax guardStatement =>
+                BindGuardStatement(guardStatement),
 
             ExpressionStatementSyntax expressionStatement =>
                 BindExpressionStatement(expressionStatement),
@@ -521,6 +524,9 @@ public sealed class Binder
 
             BinaryExpressionSyntax binary =>
                 BindBinaryExpression(binary),
+            
+            SelectExpressionSyntax selectExpression =>
+                BindSelectExpression(selectExpression),
 
             CallExpressionSyntax call =>
                 BindCallExpression(call),
@@ -531,6 +537,112 @@ public sealed class Binder
             _ => throw new InvalidOperationException(
                 $"Unsupported expression syntax: {syntax.GetType().Name}")
         };
+    }
+    
+    private BoundExpression BindSelectExpression(
+        SelectExpressionSyntax syntax)
+    {
+        var conditions =
+            new List<BoundExpression>();
+
+        var values =
+            new List<BoundExpression>();
+
+        foreach (SelectBranchSyntax branchSyntax
+                 in syntax.Branches)
+        {
+            conditions.Add(
+                BindBooleanCondition(
+                    branchSyntax.Condition));
+
+            values.Add(
+                BindExpression(
+                    branchSyntax.Value));
+        }
+
+        BoundExpression elseExpression =
+            BindExpression(
+                syntax.ElseClause.Value);
+
+        var allValues =
+            values
+                .Append(elseExpression)
+                .ToArray();
+
+        TypeSymbol resultType =
+            DetermineSelectResultType(
+                allValues,
+                syntax.Span);
+
+        if (resultType == TypeSymbol.Error)
+        {
+            return new BoundErrorExpression(
+                syntax.Span);
+        }
+
+        var branches =
+            new List<BoundSelectBranch>();
+
+        for (int index = 0;
+             index < syntax.Branches.Count;
+             index++)
+        {
+            BoundExpression convertedValue =
+                BindConversion(
+                    values[index],
+                    resultType,
+                    syntax.Branches[index].Value.Span);
+
+            branches.Add(
+                new BoundSelectBranch(
+                    conditions[index],
+                    convertedValue,
+                    syntax.Branches[index].Span));
+        }
+
+        BoundExpression convertedElse =
+            BindConversion(
+                elseExpression,
+                resultType,
+                syntax.ElseClause.Value.Span);
+
+        return new BoundSelectExpression(
+            branches.ToArray(),
+            convertedElse,
+            resultType,
+            syntax.Span);
+    }
+    
+    private BoundGuardStatement BindGuardStatement(
+        GuardStatementSyntax syntax)
+    {
+        BoundExpression condition =
+            BindBooleanCondition(
+                syntax.Condition);
+
+        BoundExpression message =
+            BindExpression(
+                syntax.Message);
+
+        if (message.Type != TypeSymbol.String &&
+            message.Type != TypeSymbol.Error)
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.GuardMessageMustBeString,
+                DiagnosticCategory.Type,
+                $"Guard message must have type `string`, but found `{message.Type.Name}`.",
+                syntax.Message.Span,
+                "Use a string literal or convert the value with `toString()`.");
+
+            message =
+                new BoundErrorExpression(
+                    syntax.Message.Span);
+        }
+
+        return new BoundGuardStatement(
+            condition,
+            message,
+            syntax.Span);
     }
 
     private static BoundExpression BindLiteralExpression(
@@ -1500,6 +1612,196 @@ public sealed class Binder
 
         return statement.Branches.All(branch =>
             AlwaysReturns(branch.Body));
+    }
+    
+    private TypeSymbol DetermineSelectResultType(
+        IReadOnlyList<BoundExpression> expressions,
+        SourceSpan diagnosticSpan)
+    {
+        if (expressions.Any(expression =>
+                expression.Type == TypeSymbol.Error))
+        {
+            return TypeSymbol.Error;
+        }
+
+        if (expressions.Any(expression =>
+                expression.Type == TypeSymbol.Void))
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.SelectValueCannotBeVoid,
+                DiagnosticCategory.Type,
+                "A `select` branch cannot return `void`.",
+                diagnosticSpan,
+                "Every branch must produce a value.");
+
+            return TypeSymbol.Error;
+        }
+
+        if (expressions.Count == 0)
+        {
+            return TypeSymbol.Error;
+        }
+
+        TypeSymbol resultType =
+            expressions[0].Type;
+
+        for (int index = 1;
+             index < expressions.Count;
+             index++)
+        {
+            TypeSymbol nextType =
+                expressions[index].Type;
+
+            if (!TryMergeSelectTypes(
+                    resultType,
+                    nextType,
+                    out TypeSymbol mergedType))
+            {
+                string types = string.Join(
+                    ", ",
+                    expressions
+                        .Select(expression =>
+                            expression.Type.Name)
+                        .Distinct());
+
+                _diagnostics.Report(
+                    DiagnosticCodes.SelectBranchTypeMismatch,
+                    DiagnosticCategory.Type,
+                    $"The branches of `select` return incompatible types: {types}.",
+                    diagnosticSpan,
+                    "All branches must return the same type or compatible numeric and nullable types.");
+
+                return TypeSymbol.Error;
+            }
+
+            resultType = mergedType;
+        }
+
+        return resultType;
+    }
+    
+    private static bool TryMergeSelectTypes(
+        TypeSymbol left,
+        TypeSymbol right,
+        out TypeSymbol result)
+    {
+        if (left == TypeSymbol.Error ||
+            right == TypeSymbol.Error)
+        {
+            result = TypeSymbol.Error;
+            return true;
+        }
+
+        if (left == right)
+        {
+            result = left;
+            return true;
+        }
+
+        if (left == TypeSymbol.Void ||
+            right == TypeSymbol.Void)
+        {
+            result = TypeSymbol.Error;
+            return false;
+        }
+
+        if (IsNumeric(left) &&
+            IsNumeric(right))
+        {
+            result = TypeSymbol.Float;
+            return true;
+        }
+
+        if (left == TypeSymbol.Null &&
+            right != TypeSymbol.Null)
+        {
+            result = right.IsNullable
+                ? right
+                : TypeSymbol.Nullable(right);
+
+            return true;
+        }
+
+        if (right == TypeSymbol.Null &&
+            left != TypeSymbol.Null)
+        {
+            result = left.IsNullable
+                ? left
+                : TypeSymbol.Nullable(left);
+
+            return true;
+        }
+
+        if (left is NullableTypeSymbol leftNullable &&
+            right is NullableTypeSymbol rightNullable)
+        {
+            if (TryMergeSelectTypes(
+                    leftNullable.UnderlyingType,
+                    rightNullable.UnderlyingType,
+                    out TypeSymbol underlyingType))
+            {
+                result =
+                    TypeSymbol.Nullable(
+                        underlyingType);
+
+                return true;
+            }
+        }
+
+        if (left is NullableTypeSymbol nullableLeft)
+        {
+            if (TryMergeSelectTypes(
+                    nullableLeft.UnderlyingType,
+                    right,
+                    out TypeSymbol underlyingType))
+            {
+                result =
+                    TypeSymbol.Nullable(
+                        underlyingType);
+
+                return true;
+            }
+        }
+
+        if (right is NullableTypeSymbol nullableRight)
+        {
+            if (TryMergeSelectTypes(
+                    left,
+                    nullableRight.UnderlyingType,
+                    out TypeSymbol underlyingType))
+            {
+                result =
+                    TypeSymbol.Nullable(
+                        underlyingType);
+
+                return true;
+            }
+        }
+
+        Conversion leftToRight =
+            Conversion.Classify(
+                left,
+                right);
+
+        if (leftToRight.Exists)
+        {
+            result = right;
+            return true;
+        }
+
+        Conversion rightToLeft =
+            Conversion.Classify(
+                right,
+                left);
+
+        if (rightToLeft.Exists)
+        {
+            result = left;
+            return true;
+        }
+
+        result = TypeSymbol.Error;
+        return false;
     }
 
     private sealed record ApplicableFunction(

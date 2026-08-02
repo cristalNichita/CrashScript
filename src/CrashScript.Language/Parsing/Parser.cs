@@ -93,6 +93,9 @@ public sealed class Parser
             TokenType.WhileKeyword =>
                 ParseWhileStatement(),
 
+            TokenType.GuardKeyword =>
+                ParseGuardStatement(),
+
             _ =>
                 ParseExpressionStatement()
         };
@@ -242,6 +245,48 @@ public sealed class Parser
         return new ReturnStatementSyntax(
             returnKeyword,
             expression,
+            semicolonToken);
+    }
+    
+    private GuardStatementSyntax ParseGuardStatement()
+    {
+        Token guardKeyword =
+            MatchToken(TokenType.GuardKeyword);
+
+        ExpressionSyntax condition =
+            ParseExpression();
+
+        Token elseKeyword;
+
+        if (Current.Type == TokenType.ElseKeyword)
+        {
+            elseKeyword = NextToken();
+        }
+        else
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.ExpectedGuardElse,
+                DiagnosticCategory.Parser,
+                "Expected `else` after the guard condition.",
+                Current.Span,
+                "CrashScript uses `guard condition else \"message\";`.");
+
+            elseKeyword = CreateMissingToken(
+                TokenType.ElseKeyword,
+                Current.Span.Start);
+        }
+
+        ExpressionSyntax message =
+            ParseExpression();
+
+        Token semicolonToken =
+            MatchSemicolon();
+
+        return new GuardStatementSyntax(
+            guardKeyword,
+            condition,
+            elseKeyword,
+            message,
             semicolonToken);
     }
 
@@ -726,6 +771,9 @@ public sealed class Parser
                     null);
             }
 
+            case TokenType.SelectKeyword:
+                return ParseSelectExpression();
+
             case TokenType.Identifier:
             {
                 Token identifierToken = NextToken();
@@ -755,6 +803,120 @@ public sealed class Parser
             default:
                 return ParseErrorExpression();
         }
+    }
+    
+    private SelectExpressionSyntax ParseSelectExpression()
+    {
+        Token selectKeyword =
+            MatchToken(TokenType.SelectKeyword);
+
+        var branches =
+            new List<SelectBranchSyntax>();
+
+        while (Current.Type == TokenType.WhenKeyword)
+        {
+            branches.Add(
+                ParseSelectBranch());
+        }
+
+        if (branches.Count == 0)
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.ExpectedWhen,
+                DiagnosticCategory.Parser,
+                "Expected at least one `when` branch in the `select` expression.",
+                Current.Span,
+                "Add `when condition => value;` after `select`.");
+        }
+
+        SelectElseClauseSyntax elseClause =
+            ParseSelectElseClause();
+
+        Token endKeyword =
+            MatchSelectEndKeyword();
+
+        return new SelectExpressionSyntax(
+            selectKeyword,
+            branches.ToArray(),
+            elseClause,
+            endKeyword);
+    }
+    
+    private SelectBranchSyntax ParseSelectBranch()
+    {
+        Token whenKeyword =
+            MatchToken(TokenType.WhenKeyword);
+
+        ExpressionSyntax condition =
+            ParseExpression();
+
+        Token fatArrowToken =
+            MatchFatArrowToken();
+
+        ExpressionSyntax value =
+            ParseExpression();
+
+        Token semicolonToken =
+            MatchSemicolon();
+
+        return new SelectBranchSyntax(
+            whenKeyword,
+            condition,
+            fatArrowToken,
+            value,
+            semicolonToken);
+    }
+    
+    private SelectElseClauseSyntax ParseSelectElseClause()
+    {
+        if (Current.Type == TokenType.ElseKeyword)
+        {
+            Token elseKeyword = NextToken();
+
+            Token fatArrowToken =
+                MatchFatArrowToken();
+
+            ExpressionSyntax value =
+                ParseExpression();
+
+            Token semicolonToken =
+                MatchSemicolon();
+
+            return new SelectElseClauseSyntax(
+                elseKeyword,
+                fatArrowToken,
+                value,
+                semicolonToken);
+        }
+
+        _diagnostics.Report(
+            DiagnosticCodes.ExpectedSelectElse,
+            DiagnosticCategory.Parser,
+            "A `select` expression requires an `else` branch.",
+            Current.Span,
+            "Add `else => fallbackValue;` before `end`.",
+            "CrashScript refuses to guess what should happen next.");
+
+        int position = Current.Span.Start;
+        SourceText source = Current.Span.Source;
+
+        return new SelectElseClauseSyntax(
+            CreateMissingToken(
+                TokenType.ElseKeyword,
+                position),
+
+            CreateMissingToken(
+                TokenType.FatArrow,
+                position),
+
+            new ErrorExpressionSyntax(
+                SourceSpan.Empty(
+                    source,
+                    position)),
+
+            CreateMissingToken(
+                TokenType.Semicolon,
+                position));
     }
 
     private ErrorExpressionSyntax ParseErrorExpression()
@@ -911,6 +1073,44 @@ public sealed class Parser
         _position++;
 
         return current;
+    }
+    
+    private Token MatchFatArrowToken()
+    {
+        if (Current.Type == TokenType.FatArrow)
+        {
+            return NextToken();
+        }
+
+        _diagnostics.Report(
+            DiagnosticCodes.ExpectedFatArrow,
+            DiagnosticCategory.Parser,
+            "Expected `=>` after the select condition.",
+            Current.Span,
+            "A select branch uses `when condition => value;`.");
+
+        return CreateMissingToken(
+            TokenType.FatArrow,
+            Current.Span.Start);
+    }
+    
+    private Token MatchSelectEndKeyword()
+    {
+        if (Current.Type == TokenType.EndKeyword)
+        {
+            return NextToken();
+        }
+
+        _diagnostics.Report(
+            DiagnosticCodes.ExpectedSelectEnd,
+            DiagnosticCategory.Parser,
+            "Expected `end` to close the `select` expression.",
+            Current.Span,
+            "Every `select` expression must finish with `end`.");
+
+        return CreateMissingToken(
+            TokenType.EndKeyword,
+            Current.Span.Start);
     }
 
     private static bool IsTypeNameToken(TokenType type)

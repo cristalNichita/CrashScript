@@ -104,6 +104,9 @@ public sealed class Interpreter
 
             BoundWhileStatement whileStatement =>
                 ExecuteWhileStatement(whileStatement),
+            
+            BoundGuardStatement guardStatement =>
+                ExecuteGuardStatement(guardStatement),
 
             BoundExpressionStatement expressionStatement =>
                 EvaluateExpression(
@@ -234,6 +237,10 @@ public sealed class Interpreter
 
             BoundBinaryExpression binary =>
                 EvaluateBinaryExpression(binary),
+            
+            BoundSelectExpression selectExpression =>
+                EvaluateSelectExpression(
+                    selectExpression),
 
             BoundCallExpression call =>
                 EvaluateCallExpression(call),
@@ -763,6 +770,50 @@ public sealed class Interpreter
 
         result = 0;
         return false;
+    }
+    
+    private object? EvaluateSelectExpression(
+        BoundSelectExpression expression)
+    {
+        foreach (BoundSelectBranch branch in expression.Branches)
+        {
+            bool condition =
+                (bool)EvaluateExpression(
+                    branch.Condition)!;
+
+            if (condition)
+            {
+                return EvaluateExpression(
+                    branch.Value);
+            }
+        }
+
+        return EvaluateExpression(
+            expression.ElseExpression);
+    }
+    
+    private object? ExecuteGuardStatement(
+        BoundGuardStatement statement)
+    {
+        bool condition =
+            (bool)EvaluateExpression(
+                statement.Condition)!;
+
+        if (condition)
+        {
+            return null;
+        }
+
+        string message =
+            (string)EvaluateExpression(
+                statement.Message)!;
+
+        throw new RuntimeFault(
+            DiagnosticCodes.GuardFailed,
+            $"Guard failed: {message}",
+            statement.Span,
+            "The guard condition evaluated to false.",
+            "CrashScript stopped before the problem became a feature.");
     }
 
     private static string GetRuntimeTypeName(object? value)

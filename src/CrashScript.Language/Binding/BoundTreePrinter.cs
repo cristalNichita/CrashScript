@@ -107,6 +107,21 @@ public static class BoundTreePrinter
                 returnStatement.Expression is null
                     ? []
                     : [returnStatement.Expression],
+            
+            BoundGuardStatement guardStatement =>
+            [
+                guardStatement.Condition,
+                guardStatement.Message
+            ],
+
+            BoundSelectExpression selectExpression =>
+                GetSelectChildren(selectExpression),
+
+            BoundSelectBranch selectBranch =>
+            [
+                selectBranch.Condition,
+                selectBranch.Value
+            ],
 
             _ => []
         };
@@ -166,9 +181,29 @@ public static class BoundTreePrinter
 
             BoundReturnStatement =>
                 "BoundReturnStatement",
+            
+            BoundGuardStatement =>
+                "BoundGuardStatement",
+
+            BoundSelectExpression selectExpression =>
+                $"BoundSelectExpression ({selectExpression.Type.Name})",
+
+            BoundSelectBranch =>
+                "BoundSelectBranch",
 
             _ => node.GetType().Name
         };
+    }
+    
+    private static IEnumerable<BoundNode> GetSelectChildren(
+        BoundSelectExpression expression)
+    {
+        foreach (BoundSelectBranch branch in expression.Branches)
+        {
+            yield return branch;
+        }
+
+        yield return expression.ElseExpression;
     }
     
     private static IEnumerable<BoundNode> GetIfChildren(
