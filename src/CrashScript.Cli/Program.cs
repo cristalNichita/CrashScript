@@ -12,229 +12,293 @@ namespace CrashScript.Cli;
 
 internal static class Program
 {
-    private const string Version = "0.1.0";
-
-    private const int SuccessExitCode = 0;
-    private const int InvalidArgumentsExitCode = 1;
-    private const int FileErrorExitCode = 2;
-    private const int LexerErrorExitCode = 3;
-    private const int ParserErrorExitCode = 4;
-    private const int TypeErrorExitCode = 5;
-    private const int RuntimeErrorExitCode = 6;
-
     public static int Main(string[] args)
     {
-        if (args.Length == 1 &&
-            IsVersionArgument(args[0]))
+        bool defaultUseColor =
+            !Console.IsOutputRedirected &&
+            !Console.IsErrorRedirected;
+
+        CommandLineParseResult parseResult =
+            CommandLineParser.Parse(
+                args,
+                defaultUseColor);
+
+        if (parseResult.Options is not { } options)
+        {
+            ConsoleDiagnosticWriter.WriteSimpleError(
+                "Invalid command-line arguments.",
+                parseResult.Error ??
+                "The command could not be parsed.",
+                defaultUseColor);
+
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(
+                "Run `crashscript --help` to see available commands.");
+
+            return ExitCodes.InvalidArguments;
+        }
+
+        if (options.Mode == CommandMode.Help)
+        {
+            HelpText.Write();
+            return ExitCodes.Success;
+        }
+
+        if (options.Mode == CommandMode.Version)
         {
             Console.WriteLine(
-                $"CrashScript {Version}");
+                $"{AppInfo.Name} {AppInfo.Version}");
 
-            return SuccessExitCode;
+            return ExitCodes.Success;
         }
 
-        if (!TryParseArguments(
-                args,
-                out string filePath,
-                out OutputMode outputMode))
-        {
-            PrintUsage();
-
-            return InvalidArgumentsExitCode;
-        }
+        string filePath =
+            options.FilePath ??
+            throw new InvalidOperationException(
+                "A file command was created without a file path.");
 
         try
         {
-            var engine = new CrashScriptEngine();
+            var engine =
+                new CrashScriptEngine();
 
             SourceText source =
                 engine.LoadSourceFile(filePath);
 
-            return outputMode switch
+            return options.Mode switch
             {
-                OutputMode.Tokens =>
-                    RunLexerMode(
-                        engine,
-                        source),
-
-                OutputMode.Ast =>
-                    RunParserMode(
-                        engine,
-                        source),
-
-                OutputMode.Bound =>
-                    RunBoundMode(
-                        engine,
-                        source),
-
-                OutputMode.Check =>
-                    RunCheckMode(
-                        engine,
-                        source),
-
-                _ =>
+                CommandMode.Execute =>
                     RunExecutionMode(
                         engine,
-                        source)
+                        source,
+                        options.UseColor),
+
+                CommandMode.Check =>
+                    RunCheckMode(
+                        engine,
+                        source,
+                        options.UseColor),
+
+                CommandMode.Tokens =>
+                    RunLexerMode(
+                        engine,
+                        source,
+                        options.UseColor),
+
+                CommandMode.Ast =>
+                    RunParserMode(
+                        engine,
+                        source,
+                        options.UseColor),
+
+                CommandMode.Bound =>
+                    RunBoundMode(
+                        engine,
+                        source,
+                        options.UseColor),
+
+                _ =>
+                    throw new InvalidOperationException(
+                        $"Unsupported command mode `{options.Mode}`.")
             };
         }
         catch (FileNotFoundException exception)
         {
-            PrintFileError(exception.Message);
-            return FileErrorExitCode;
+            ConsoleDiagnosticWriter.WriteSimpleError(
+                "CrashScript source file was not found.",
+                exception.FileName ??
+                exception.Message,
+                options.UseColor);
+
+            return ExitCodes.FileError;
         }
         catch (InvalidDataException exception)
         {
-            PrintFileError(exception.Message);
-            return FileErrorExitCode;
+            ConsoleDiagnosticWriter.WriteSimpleError(
+                "CrashScript could not open the source file.",
+                exception.Message,
+                options.UseColor);
+
+            return ExitCodes.FileError;
         }
         catch (UnauthorizedAccessException exception)
         {
-            PrintFileError(
-                $"Access denied: {exception.Message}");
+            ConsoleDiagnosticWriter.WriteSimpleError(
+                "Access to the source file was denied.",
+                exception.Message,
+                options.UseColor);
 
-            return FileErrorExitCode;
+            return ExitCodes.FileError;
         }
         catch (IOException exception)
         {
-            PrintFileError(
-                $"Could not read the source file: {exception.Message}");
+            ConsoleDiagnosticWriter.WriteSimpleError(
+                "CrashScript could not read the source file.",
+                exception.Message,
+                options.UseColor);
 
-            return FileErrorExitCode;
+            return ExitCodes.FileError;
+        }
+        catch (Exception exception)
+        {
+            PrintInternalError(
+                exception,
+                options.UseColor);
+
+            return ExitCodes.InternalError;
         }
     }
 
     private static int RunExecutionMode(
         CrashScriptEngine engine,
-        SourceText source)
+        SourceText source,
+        bool useColor)
     {
         ExecutionResult result =
             engine.Execute(source);
 
-        if (result.Diagnostics.Count > 0)
+        if (result.Diagnostics.Count == 0)
         {
-            PrintDiagnostics(
-                result.Diagnostics);
-
-            return GetDiagnosticExitCode(
-                result.Diagnostics);
+            return ExitCodes.Success;
         }
 
-        return SuccessExitCode;
+        ConsoleDiagnosticWriter.Write(
+            result.Diagnostics,
+            useColor);
+
+        return GetDiagnosticExitCode(
+            result.Diagnostics);
     }
 
     private static int RunCheckMode(
         CrashScriptEngine engine,
-        SourceText source)
+        SourceText source,
+        bool useColor)
     {
         BindResult result =
             engine.Bind(source);
 
         if (result.Diagnostics.Count > 0)
         {
-            PrintDiagnostics(
-                result.Diagnostics);
+            ConsoleDiagnosticWriter.Write(
+                result.Diagnostics,
+                useColor);
 
             return GetDiagnosticExitCode(
                 result.Diagnostics);
         }
 
-        Console.WriteLine(
-            $"CrashScript {Version}");
-        Console.WriteLine(
-            $"Checked: {source.FileName}");
+        WriteSuccessLine(
+            $"Checked `{source.FileName}` successfully.",
+            useColor);
+
         Console.WriteLine(
             $"Statements: {result.Root.Statements.Count}");
-        Console.WriteLine("Lexer errors: 0");
-        Console.WriteLine("Parser errors: 0");
-        Console.WriteLine("Type errors: 0");
-        Console.WriteLine();
-        Console.WriteLine(
-            "The program is ready to execute.");
 
-        return SuccessExitCode;
+        Console.WriteLine(
+            "Lexer errors: 0");
+
+        Console.WriteLine(
+            "Parser errors: 0");
+
+        Console.WriteLine(
+            "Type errors: 0");
+
+        return ExitCodes.Success;
     }
 
     private static int RunLexerMode(
         CrashScriptEngine engine,
-        SourceText source)
+        SourceText source,
+        bool useColor)
     {
         LexResult result =
             engine.Tokenize(source);
 
         PrintTokens(result.Tokens);
 
-        if (result.Diagnostics.Count > 0)
+        if (result.Diagnostics.Count == 0)
         {
-            PrintDiagnostics(
-                result.Diagnostics);
-
-            return LexerErrorExitCode;
+            return ExitCodes.Success;
         }
 
-        return SuccessExitCode;
+        ConsoleDiagnosticWriter.Write(
+            result.Diagnostics,
+            useColor);
+
+        return ExitCodes.LexerError;
     }
 
     private static int RunParserMode(
         CrashScriptEngine engine,
-        SourceText source)
+        SourceText source,
+        bool useColor)
     {
         ParseResult result =
             engine.Parse(source);
 
         if (result.Diagnostics.Count > 0)
         {
-            PrintDiagnostics(
-                result.Diagnostics);
+            ConsoleDiagnosticWriter.Write(
+                result.Diagnostics,
+                useColor);
 
             return GetDiagnosticExitCode(
                 result.Diagnostics);
         }
 
         Console.WriteLine(
-            $"CrashScript {Version}");
+            $"{AppInfo.Name} {AppInfo.Version}");
+
         Console.WriteLine();
         Console.WriteLine("SYNTAX AST");
         Console.WriteLine(
             "----------------------------------------");
+
         Console.WriteLine(
             SyntaxTreePrinter.Print(
                 result.Root));
+
         Console.WriteLine(
             "----------------------------------------");
 
-        return SuccessExitCode;
+        return ExitCodes.Success;
     }
 
     private static int RunBoundMode(
         CrashScriptEngine engine,
-        SourceText source)
+        SourceText source,
+        bool useColor)
     {
         BindResult result =
             engine.Bind(source);
 
         if (result.Diagnostics.Count > 0)
         {
-            PrintDiagnostics(
-                result.Diagnostics);
+            ConsoleDiagnosticWriter.Write(
+                result.Diagnostics,
+                useColor);
 
             return GetDiagnosticExitCode(
                 result.Diagnostics);
         }
 
         Console.WriteLine(
-            $"CrashScript {Version}");
+            $"{AppInfo.Name} {AppInfo.Version}");
+
         Console.WriteLine();
         Console.WriteLine("BOUND AST");
         Console.WriteLine(
             "----------------------------------------");
+
         Console.WriteLine(
             BoundTreePrinter.Print(
                 result.Root));
+
         Console.WriteLine(
             "----------------------------------------");
 
-        return SuccessExitCode;
+        return ExitCodes.Success;
     }
 
     private static int GetDiagnosticExitCode(
@@ -244,81 +308,41 @@ internal static class Program
                 diagnostic.Category ==
                 DiagnosticCategory.Lexer))
         {
-            return LexerErrorExitCode;
+            return ExitCodes.LexerError;
         }
 
         if (diagnostics.Any(diagnostic =>
                 diagnostic.Category ==
                 DiagnosticCategory.Parser))
         {
-            return ParserErrorExitCode;
+            return ExitCodes.ParserError;
         }
 
         if (diagnostics.Any(diagnostic =>
                 diagnostic.Category ==
                 DiagnosticCategory.Type))
         {
-            return TypeErrorExitCode;
+            return ExitCodes.TypeError;
         }
 
-        return RuntimeErrorExitCode;
-    }
-
-    private static bool TryParseArguments(
-        string[] args,
-        out string filePath,
-        out OutputMode outputMode)
-    {
-        filePath = string.Empty;
-        outputMode = OutputMode.Execute;
-
-        if (args.Length == 1)
-        {
-            filePath = args[0];
-            return true;
-        }
-
-        if (args.Length != 2)
-        {
-            return false;
-        }
-
-        outputMode = args[0] switch
-        {
-            "--tokens" => OutputMode.Tokens,
-            "--ast" => OutputMode.Ast,
-            "--bound" => OutputMode.Bound,
-            "--check" => OutputMode.Check,
-            _ => OutputMode.Invalid
-        };
-
-        if (outputMode == OutputMode.Invalid)
-        {
-            return false;
-        }
-
-        filePath = args[1];
-
-        return true;
-    }
-
-    private static bool IsVersionArgument(
-        string argument)
-    {
-        return argument is "--version" or "-v";
+        return ExitCodes.RuntimeError;
     }
 
     private static void PrintTokens(
         IReadOnlyList<Token> tokens)
     {
         Console.WriteLine(
-            $"CrashScript {Version}");
+            $"{AppInfo.Name} {AppInfo.Version}");
+
         Console.WriteLine();
         Console.WriteLine("TOKENS");
+
         Console.WriteLine(
             "--------------------------------------------------------------------------");
+
         Console.WriteLine(
             " LOCATION  TYPE                     TEXT                     VALUE");
+
         Console.WriteLine(
             "--------------------------------------------------------------------------");
 
@@ -339,35 +363,14 @@ internal static class Program
                 FormatValue(token.Value);
 
             Console.WriteLine(
-                $" {locationText,-9} {token.Type,-24} {tokenText,-24} {valueText}");
+                $" {locationText,-9} " +
+                $"{token.Type,-24} " +
+                $"{tokenText,-24} " +
+                $"{valueText}");
         }
 
         Console.WriteLine(
             "--------------------------------------------------------------------------");
-        Console.WriteLine();
-    }
-
-    private static void PrintDiagnostics(
-        IReadOnlyList<Diagnostic> diagnostics)
-    {
-        Console.Error.WriteLine(
-            $"CrashScript found {diagnostics.Count} error(s).");
-        Console.Error.WriteLine();
-
-        for (int index = 0;
-             index < diagnostics.Count;
-             index++)
-        {
-            Console.Error.WriteLine(
-                DiagnosticRenderer.Render(
-                    diagnostics[index]));
-
-            if (index + 1 <
-                diagnostics.Count)
-            {
-                Console.Error.WriteLine();
-            }
-        }
     }
 
     private static string FormatValue(
@@ -392,7 +395,8 @@ internal static class Program
         };
     }
 
-    private static string Escape(string text)
+    private static string Escape(
+        string text)
     {
         return text
             .Replace("\\", "\\\\")
@@ -402,41 +406,58 @@ internal static class Program
             .Replace("\"", "\\\"");
     }
 
-    private static void PrintUsage()
+    private static void WriteSuccessLine(
+        string text,
+        bool useColor)
     {
-        Console.WriteLine(
-            $"CrashScript {Version}");
-        Console.WriteLine();
-        Console.WriteLine("Usage:");
-        Console.WriteLine(
-            "  crashscript <file.crash>");
-        Console.WriteLine(
-            "  crashscript --check <file.crash>");
-        Console.WriteLine(
-            "  crashscript --tokens <file.crash>");
-        Console.WriteLine(
-            "  crashscript --ast <file.crash>");
-        Console.WriteLine(
-            "  crashscript --bound <file.crash>");
-        Console.WriteLine(
-            "  crashscript --version");
+        if (!useColor)
+        {
+            Console.WriteLine(text);
+            return;
+        }
+
+        ConsoleColor previousColor =
+            Console.ForegroundColor;
+
+        try
+        {
+            Console.ForegroundColor =
+                ConsoleColor.Green;
+
+            Console.WriteLine(text);
+        }
+        finally
+        {
+            Console.ForegroundColor =
+                previousColor;
+        }
     }
 
-    private static void PrintFileError(
-        string message)
+    private static void PrintInternalError(
+        Exception exception,
+        bool useColor)
     {
+        ConsoleDiagnosticWriter.WriteSimpleError(
+            "CRASH-INTERNAL: The CrashScript interpreter failed unexpectedly.",
+            exception.Message,
+            useColor);
+
+        bool debugEnabled =
+            string.Equals(
+                Environment.GetEnvironmentVariable(
+                    "CRASHSCRIPT_DEBUG"),
+                "1",
+                StringComparison.Ordinal);
+
+        if (debugEnabled)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(exception);
+            return;
+        }
+
+        Console.Error.WriteLine();
         Console.Error.WriteLine(
-            "CrashScript could not start.");
-        Console.Error.WriteLine(message);
-    }
-
-    private enum OutputMode
-    {
-        Invalid,
-        Execute,
-        Check,
-        Tokens,
-        Ast,
-        Bound
+            "Set CRASHSCRIPT_DEBUG=1 to print the internal stack trace.");
     }
 }

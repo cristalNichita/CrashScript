@@ -20,6 +20,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\..\src\CrashScript.Language\CrashScript.Language.csproj"/>
+        <ProjectReference Include="..\..\src\CrashScript.Cli\CrashScript.Cli.csproj"/>
     </ItemGroup>
 
 </Project>
