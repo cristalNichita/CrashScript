@@ -78,8 +78,14 @@ public sealed class Parser
         return Current.Type switch
         {
             TokenType.MemoryKeyword or
-            TokenType.FixedKeyword =>
+                TokenType.FixedKeyword =>
                 ParseVariableDeclarationStatement(),
+
+            TokenType.ProcessKeyword =>
+                ParseFunctionDeclarationStatement(),
+
+            TokenType.ReturnKeyword =>
+                ParseReturnStatement(),
 
             TokenType.IfKeyword =>
                 ParseIfStatement(),
@@ -133,6 +139,109 @@ public sealed class Parser
             declaredType,
             assignmentToken,
             initializer,
+            semicolonToken);
+    }
+    
+    private FunctionDeclarationStatementSyntax
+        ParseFunctionDeclarationStatement()
+    {
+        Token processKeyword =
+            MatchToken(TokenType.ProcessKeyword);
+
+        Token identifierToken =
+            MatchToken(TokenType.Identifier);
+
+        Token openParenthesisToken =
+            MatchToken(TokenType.LeftParenthesis);
+
+        var parameters =
+            new List<ParameterSyntax>();
+
+        if (Current.Type != TokenType.RightParenthesis &&
+            Current.Type != TokenType.EndOfFile)
+        {
+            while (true)
+            {
+                parameters.Add(
+                    ParseParameter());
+
+                if (Current.Type != TokenType.Comma)
+                {
+                    break;
+                }
+
+                NextToken();
+            }
+        }
+
+        Token closeParenthesisToken =
+            MatchToken(TokenType.RightParenthesis);
+
+        Token arrowToken =
+            MatchToken(TokenType.Arrow);
+
+        TypeSyntax returnType =
+            ParseTypeSyntax();
+
+        BlockStatementSyntax body =
+            ParseBlockUntil(
+                TokenType.EndKeyword);
+
+        Token endKeyword =
+            MatchEndKeyword();
+
+        Token semicolonToken =
+            MatchSemicolon();
+
+        return new FunctionDeclarationStatementSyntax(
+            processKeyword,
+            identifierToken,
+            openParenthesisToken,
+            parameters.ToArray(),
+            closeParenthesisToken,
+            arrowToken,
+            returnType,
+            body,
+            endKeyword,
+            semicolonToken);
+    }
+    
+    private ParameterSyntax ParseParameter()
+    {
+        Token identifierToken =
+            MatchToken(TokenType.Identifier);
+
+        Token colonToken =
+            MatchToken(TokenType.Colon);
+
+        TypeSyntax type =
+            ParseTypeSyntax();
+
+        return new ParameterSyntax(
+            identifierToken,
+            colonToken,
+            type);
+    }
+    
+    private ReturnStatementSyntax ParseReturnStatement()
+    {
+        Token returnKeyword =
+            MatchToken(TokenType.ReturnKeyword);
+
+        ExpressionSyntax? expression = null;
+
+        if (Current.Type != TokenType.Semicolon)
+        {
+            expression =
+                ParseExpression();
+        }
+
+        Token semicolonToken =
+            MatchSemicolon();
+
+        return new ReturnStatementSyntax(
+            returnKeyword,
+            expression,
             semicolonToken);
     }
 

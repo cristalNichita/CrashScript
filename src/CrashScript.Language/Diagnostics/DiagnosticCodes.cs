@@ -34,6 +34,14 @@ public static class DiagnosticCodes
     public const string InvalidVariableType = "CRASH-T315";
     public const string ConditionMustBeBoolean = "CRASH-T316";
 
+    public const string ProcessAlreadyDeclared = "CRASH-T317";
+    public const string DuplicateParameter = "CRASH-T318";
+    public const string ReturnOutsideProcess = "CRASH-T319";
+    public const string ReturnValueRequired = "CRASH-T320";
+    public const string CannotReturnValue = "CRASH-T321";
+    public const string MissingReturn = "CRASH-T322";
+    public const string ProcessMustBeTopLevel = "CRASH-T323";
+
     // Runtime errors
     public const string GuardFailed = "CRASH-R401";
     public const string DivisionByZero = "CRASH-R402";

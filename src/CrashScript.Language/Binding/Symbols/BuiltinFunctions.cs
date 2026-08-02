@@ -106,6 +106,7 @@ public static class BuiltinFunctions
         return new FunctionSymbol(
             name,
             parameterSymbols,
-            returnType);
+            returnType,
+            isNative: true);
     }
 }

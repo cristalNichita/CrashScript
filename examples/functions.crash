@@ -1,0 +1,42 @@
+// CrashScript user functions and recursion.
+
+log("CrashScript processes online.");
+
+memory sum := add(10, 20);
+log("10 + 20 = " + toString(sum));
+
+log("Factorial 5 = " + toString(factorial(5)));
+
+log(getRank(75));
+
+greet("Crashbyt");
+
+process add(a: int, b: int) -> int
+	return a + b;
+end;
+
+process factorial(number: int) -> int
+	if number <= 1 then
+		return 1;
+	end;
+	
+	return number * factorial(number -1);
+end;
+
+process getRank(score: int) -> string
+	if score >= 100 then
+		return "Legendary";
+	else if score >= 50 then
+		return "High";
+	else
+		return "Normal";
+	end;
+end;
+
+process greet(name: string) -> void
+	memory message :=
+		"Hello from CrashScript, " + name;
+		
+	log(message);
+	return;
+end;

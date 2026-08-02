@@ -1,10 +1,31 @@
 namespace CrashScript.Language.Binding.Symbols;
 
-public sealed record FunctionSymbol(
-    string Name,
-    IReadOnlyList<ParameterSymbol> Parameters,
-    TypeSymbol ReturnType)
+public sealed class FunctionSymbol
 {
+    public FunctionSymbol(
+        string name,
+        IReadOnlyList<ParameterSymbol> parameters,
+        TypeSymbol returnType,
+        bool isNative)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(parameters);
+        ArgumentNullException.ThrowIfNull(returnType);
+
+        Name = name;
+        Parameters = parameters;
+        ReturnType = returnType;
+        IsNative = isNative;
+    }
+
+    public string Name { get; }
+
+    public IReadOnlyList<ParameterSymbol> Parameters { get; }
+
+    public TypeSymbol ReturnType { get; }
+
+    public bool IsNative { get; }
+
     public string Signature
     {
         get

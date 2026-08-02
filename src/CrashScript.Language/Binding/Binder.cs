@@ -12,11 +12,30 @@ namespace CrashScript.Language.Binding;
 public sealed class Binder
 {
     private readonly DiagnosticBag _diagnostics = new();
+    
+    private readonly Dictionary<string, List<FunctionSymbol>>
+        _functions = new(StringComparer.Ordinal);
+
+    private readonly Dictionary<
+        FunctionDeclarationStatementSyntax,
+        FunctionSymbol> _declaredFunctions = [];
+    
     private BoundScope _scope = new(parent: null);
+    private FunctionSymbol? _currentFunction;
+
+    public Binder()
+    {
+        foreach (FunctionSymbol function in BuiltinFunctions.All)
+        {
+            AddFunction(function);
+        }
+    }
 
     public BindResult Bind(CompilationUnitSyntax syntax)
     {
         ArgumentNullException.ThrowIfNull(syntax);
+        
+        DeclareTopLevelFunctions(syntax);
 
         BoundStatement[] statements = syntax.Statements
             .Select(BindStatement)
@@ -30,6 +49,113 @@ public sealed class Binder
             root,
             _diagnostics.ToArray());
     }
+    
+    private void DeclareTopLevelFunctions(
+        CompilationUnitSyntax syntax)
+    {
+        foreach (FunctionDeclarationStatementSyntax declaration
+                 in syntax.Statements
+                     .OfType<FunctionDeclarationStatementSyntax>())
+        {
+            FunctionSymbol function =
+                CreateFunctionSymbol(declaration);
+
+            _declaredFunctions.Add(
+                declaration,
+                function);
+
+            if (_functions.ContainsKey(function.Name))
+            {
+                _diagnostics.Report(
+                    DiagnosticCodes.ProcessAlreadyDeclared,
+                    DiagnosticCategory.Type,
+                    $"Process `{function.Name}` is already declared.",
+                    declaration.IdentifierToken.Span,
+                    "CrashScript 0.1 does not support user-defined overloads.");
+
+                continue;
+            }
+
+            AddFunction(function);
+        }
+    }
+    
+    private FunctionSymbol CreateFunctionSymbol(
+        FunctionDeclarationStatementSyntax syntax)
+    {
+        var parameterNames =
+            new HashSet<string>(StringComparer.Ordinal);
+
+        var parameters =
+            new List<ParameterSymbol>();
+
+        foreach (ParameterSyntax parameterSyntax
+                 in syntax.Parameters)
+        {
+            TypeSymbol parameterType =
+                BindType(parameterSyntax.Type);
+
+            if (parameterType == TypeSymbol.Void)
+            {
+                _diagnostics.Report(
+                    DiagnosticCodes.InvalidVariableType,
+                    DiagnosticCategory.Type,
+                    "A process parameter cannot have type `void`.",
+                    parameterSyntax.Type.Span);
+
+                parameterType = TypeSymbol.Error;
+            }
+
+            if (!parameterNames.Add(parameterSyntax.Name))
+            {
+                _diagnostics.Report(
+                    DiagnosticCodes.DuplicateParameter,
+                    DiagnosticCategory.Type,
+                    $"Parameter `{parameterSyntax.Name}` is declared more than once.",
+                    parameterSyntax.IdentifierToken.Span);
+            }
+
+            parameters.Add(
+                new ParameterSymbol(
+                    parameterSyntax.Name,
+                    parameterType));
+        }
+
+        TypeSymbol returnType =
+            BindType(syntax.ReturnType);
+
+        return new FunctionSymbol(
+            syntax.Name,
+            parameters.ToArray(),
+            returnType,
+            isNative: false);
+    }
+    
+    private void AddFunction(
+        FunctionSymbol function)
+    {
+        if (!_functions.TryGetValue(
+                function.Name,
+                out List<FunctionSymbol>? overloads))
+        {
+            overloads = [];
+            _functions.Add(
+                function.Name,
+                overloads);
+        }
+
+        overloads.Add(function);
+    }
+
+    private IReadOnlyList<FunctionSymbol> FindFunctions(
+        string name)
+    {
+        return _functions.TryGetValue(
+            name,
+            out List<FunctionSymbol>? functions)
+            ? functions
+            : [];
+    }
 
     private BoundStatement BindStatement(
         StatementSyntax syntax)
@@ -38,6 +164,12 @@ public sealed class Binder
         {
             VariableDeclarationStatementSyntax declaration =>
                 BindVariableDeclarationStatement(declaration),
+
+            FunctionDeclarationStatementSyntax function =>
+                BindFunctionDeclaration(function),
+
+            ReturnStatementSyntax returnStatement =>
+                BindReturnStatement(returnStatement),
 
             BlockStatementSyntax block =>
                 BindBlockStatement(block),
@@ -54,6 +186,137 @@ public sealed class Binder
             _ => throw new InvalidOperationException(
                 $"Unsupported statement syntax: {syntax.GetType().Name}")
         };
+    }
+    
+    private BoundFunctionDeclaration BindFunctionDeclaration(
+        FunctionDeclarationStatementSyntax syntax)
+    {
+        FunctionSymbol function;
+
+        if (_declaredFunctions.TryGetValue(
+                syntax,
+                out FunctionSymbol? declaredFunction))
+        {
+            function = declaredFunction
+                       ?? throw new InvalidOperationException(
+                           $"Declared process symbol for `{syntax.Name}` is null.");
+        }
+        else
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.ProcessMustBeTopLevel,
+                DiagnosticCategory.Type,
+                $"Process `{syntax.Name}` must be declared at the top level.",
+                syntax.ProcessKeyword.Span);
+
+            function = CreateFunctionSymbol(syntax);
+        }
+
+        BoundScope previousScope = _scope;
+        FunctionSymbol? previousFunction = _currentFunction;
+
+        _scope = new BoundScope(previousScope);
+        _currentFunction = function;
+
+        try
+        {
+            foreach (ParameterSymbol parameter in function.Parameters)
+            {
+                _scope.TryDeclareVariable(parameter);
+            }
+
+            BoundStatement[] statements = syntax.Body.Statements
+                .Select(BindStatement)
+                .ToArray();
+
+            var body = new BoundBlockStatement(
+                statements,
+                syntax.Body.Span);
+
+            if (function.ReturnType != TypeSymbol.Void &&
+                function.ReturnType != TypeSymbol.Error &&
+                !AlwaysReturns(body))
+            {
+                _diagnostics.Report(
+                    DiagnosticCodes.MissingReturn,
+                    DiagnosticCategory.Type,
+                    $"Process `{function.Name}` does not return a value on every path.",
+                    syntax.IdentifierToken.Span,
+                    $"Add `return` for type `{function.ReturnType.Name}`.");
+            }
+
+            return new BoundFunctionDeclaration(
+                function,
+                body,
+                syntax.Span);
+        }
+        finally
+        {
+            _scope = previousScope;
+            _currentFunction = previousFunction;
+        }
+    }
+    
+    private BoundReturnStatement BindReturnStatement(
+        ReturnStatementSyntax syntax)
+    {
+        BoundExpression? expression =
+            syntax.Expression is null
+                ? null
+                : BindExpression(syntax.Expression);
+
+        if (_currentFunction is null)
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.ReturnOutsideProcess,
+                DiagnosticCategory.Type,
+                "`return` can only be used inside a process.",
+                syntax.ReturnKeyword.Span);
+
+            return new BoundReturnStatement(
+                expression,
+                syntax.Span);
+        }
+
+        if (_currentFunction.ReturnType == TypeSymbol.Void)
+        {
+            if (expression is not null)
+            {
+                _diagnostics.Report(
+                    DiagnosticCodes.CannotReturnValue,
+                    DiagnosticCategory.Type,
+                    $"Process `{_currentFunction.Name}` returns `void` and cannot return a value.",
+                    syntax.Expression!.Span,
+                    "Use `return;` without an expression.");
+            }
+
+            return new BoundReturnStatement(
+                expression,
+                syntax.Span);
+        }
+
+        if (expression is null)
+        {
+            _diagnostics.Report(
+                DiagnosticCodes.ReturnValueRequired,
+                DiagnosticCategory.Type,
+                $"Process `{_currentFunction.Name}` must return a value of type `{_currentFunction.ReturnType.Name}`.",
+                syntax.ReturnKeyword.Span);
+
+            return new BoundReturnStatement(
+                null,
+                syntax.Span);
+        }
+
+        BoundExpression convertedExpression =
+            BindConversion(
+                expression,
+                _currentFunction.ReturnType,
+                syntax.Expression!.Span);
+
+        return new BoundReturnStatement(
+            convertedExpression,
+            syntax.Span);
     }
 
     private BoundExpressionStatement BindExpressionStatement(
@@ -305,7 +568,7 @@ public sealed class Binder
         }
 
         IReadOnlyList<FunctionSymbol> functions =
-            BuiltinFunctions.Find(syntax.Name);
+            FindFunctions(syntax.Name);
 
         if (functions.Count > 0)
         {
@@ -857,7 +1120,7 @@ public sealed class Binder
         }
 
         IReadOnlyList<FunctionSymbol> candidates =
-            BuiltinFunctions.Find(nameSyntax.Name);
+            FindFunctions(nameSyntax.Name);
 
         if (candidates.Count == 0)
         {
@@ -1187,6 +1450,56 @@ public sealed class Binder
                ||
                right == TypeSymbol.Null &&
                left.IsNullable;
+    }
+    
+    private static bool AlwaysReturns(
+        BoundStatement statement)
+    {
+        return statement switch
+        {
+            BoundReturnStatement =>
+                true,
+
+            BoundBlockStatement block =>
+                BlockAlwaysReturns(block),
+
+            BoundIfStatement ifStatement =>
+                IfAlwaysReturns(ifStatement),
+
+            _ =>
+                false
+        };
+    }
+
+    private static bool BlockAlwaysReturns(
+        BoundBlockStatement block)
+    {
+        foreach (BoundStatement statement in block.Statements)
+        {
+            if (AlwaysReturns(statement))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IfAlwaysReturns(
+        BoundIfStatement statement)
+    {
+        if (statement.ElseBody is null)
+        {
+            return false;
+        }
+
+        if (!AlwaysReturns(statement.ElseBody))
+        {
+            return false;
+        }
+
+        return statement.Branches.All(branch =>
+            AlwaysReturns(branch.Body));
     }
 
     private sealed record ApplicableFunction(

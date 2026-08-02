@@ -99,6 +99,14 @@ public static class BoundTreePrinter
 
             BoundCallExpression call =>
                 call.Arguments,
+            
+            BoundFunctionDeclaration function =>
+                [function.Body],
+
+            BoundReturnStatement returnStatement =>
+                returnStatement.Expression is null
+                    ? []
+                    : [returnStatement.Expression],
 
             _ => []
         };
@@ -152,6 +160,12 @@ public static class BoundTreePrinter
 
             BoundWhileStatement =>
                 "BoundWhileStatement",
+            
+            BoundFunctionDeclaration function =>
+                $"BoundProcessDeclaration ({function.Function.Signature})",
+
+            BoundReturnStatement =>
+                "BoundReturnStatement",
 
             _ => node.GetType().Name
         };

@@ -1,5 +1,14 @@
 namespace CrashScript.Language.Binding.Symbols;
 
-public sealed record ParameterSymbol(
-    string Name,
-    TypeSymbol Type);
+public sealed class ParameterSymbol : VariableSymbol
+{
+    public ParameterSymbol(
+        string name,
+        TypeSymbol type)
+        : base(
+            name,
+            type,
+            isReadOnly: false)
+    {
+    }
+}

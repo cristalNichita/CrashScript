@@ -1,0 +1,5 @@
+process getScore(value: int) -> int
+	if value > 0 then
+		return value;
+	end;
+end;

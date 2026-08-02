@@ -1,6 +1,6 @@
 namespace CrashScript.Language.Binding.Symbols;
 
-public sealed class VariableSymbol
+public class VariableSymbol
 {
     public VariableSymbol(
         string name,

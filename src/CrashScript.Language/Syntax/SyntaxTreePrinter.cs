@@ -108,6 +108,17 @@ public static class SyntaxTreePrinter
                 {
                     call.Callee
                 }.Concat(call.Arguments),
+            
+            FunctionDeclarationStatementSyntax function =>
+                GetFunctionChildren(function),
+
+            ParameterSyntax parameter =>
+                [parameter.Type],
+
+            ReturnStatementSyntax returnStatement =>
+                returnStatement.Expression is null
+                    ? []
+                    : [returnStatement.Expression],
 
             _ => []
         };
@@ -169,9 +180,32 @@ public static class SyntaxTreePrinter
 
             WhileStatementSyntax =>
                 "WhileStatement",
+            
+            FunctionDeclarationStatementSyntax function =>
+                $"ProcessDeclaration ({function.Name})",
+
+            ParameterSyntax parameter =>
+                $"Parameter ({parameter.Name}: {parameter.Type.Name}" +
+                $"{(parameter.Type.IsNullable ? "?" : string.Empty)})",
+
+            ReturnStatementSyntax =>
+                "ReturnStatement",
 
             _ => node.GetType().Name
         };
+    }
+    
+    private static IEnumerable<SyntaxNode>
+        GetFunctionChildren(
+            FunctionDeclarationStatementSyntax function)
+    {
+        foreach (ParameterSyntax parameter in function.Parameters)
+        {
+            yield return parameter;
+        }
+
+        yield return function.ReturnType;
+        yield return function.Body;
     }
 
     private static string GetVariableDeclarationLabel(

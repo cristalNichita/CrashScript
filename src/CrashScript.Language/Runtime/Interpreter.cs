@@ -9,6 +9,12 @@ namespace CrashScript.Language.Runtime;
 public sealed class Interpreter
 {
     private readonly NativeFunctionDispatcher _nativeFunctions;
+    private readonly RuntimeEnvironment _globalEnvironment;
+
+    private readonly Dictionary<
+        FunctionSymbol,
+        BoundFunctionDeclaration> _userFunctions = [];
+    
     private RuntimeEnvironment _environment;
 
     public Interpreter(
@@ -19,8 +25,11 @@ public sealed class Interpreter
         console ??= new SystemCrashConsole();
         random ??= Random.Shared;
 
-        _environment =
+        _globalEnvironment =
             environment ?? new RuntimeEnvironment();
+
+        _environment =
+            _globalEnvironment;
 
         _nativeFunctions =
             new NativeFunctionDispatcher(
@@ -35,11 +44,28 @@ public sealed class Interpreter
 
         object? lastValue = null;
 
+        _userFunctions.Clear();
+
+        foreach (BoundFunctionDeclaration declaration
+                 in program.Statements
+                     .OfType<BoundFunctionDeclaration>())
+        {
+            _userFunctions.Add(
+                declaration.Function,
+                declaration);
+        }
+
         try
         {
             foreach (BoundStatement statement in program.Statements)
             {
-                lastValue = ExecuteStatement(statement);
+                if (statement is BoundFunctionDeclaration)
+                {
+                    continue;
+                }
+
+                lastValue =
+                    ExecuteStatement(statement);
             }
 
             return new ExecutionResult(
@@ -61,6 +87,12 @@ public sealed class Interpreter
     {
         return statement switch
         {
+            BoundFunctionDeclaration =>
+                null,
+
+            BoundReturnStatement returnStatement =>
+                ExecuteReturnStatement(returnStatement),
+
             BoundVariableDeclaration declaration =>
                 ExecuteVariableDeclaration(declaration),
 
@@ -80,6 +112,18 @@ public sealed class Interpreter
             _ => throw new InvalidOperationException(
                 $"Unsupported bound statement: {statement.GetType().Name}")
         };
+    }
+    
+    private object? ExecuteReturnStatement(
+        BoundReturnStatement statement)
+    {
+        object? value =
+            statement.Expression is null
+                ? null
+                : EvaluateExpression(
+                    statement.Expression);
+
+        throw new ReturnSignal(value);
     }
     
     private object? ExecuteBlockStatement(
@@ -388,29 +432,93 @@ public sealed class Interpreter
             .Select(EvaluateExpression)
             .ToArray();
 
-        return _nativeFunctions.Invoke(
+        if (expression.Function.IsNative)
+        {
+            return _nativeFunctions.Invoke(
+                expression.Function,
+                arguments,
+                expression.Span);
+        }
+
+        return InvokeUserFunction(
             expression.Function,
-            arguments,
-            expression.Span);
+            arguments);
+    }
+    
+    private object? InvokeUserFunction(
+        FunctionSymbol function,
+        IReadOnlyList<object?> arguments)
+    {
+        if (!_userFunctions.TryGetValue(
+                function,
+                out BoundFunctionDeclaration? declaration))
+        {
+            throw new InvalidOperationException(
+                $"Runtime declaration for process `{function.Name}` was not found.");
+        }
+
+        RuntimeEnvironment previousEnvironment =
+            _environment;
+
+        _environment =
+            new RuntimeEnvironment(
+                _globalEnvironment);
+
+        try
+        {
+            for (int index = 0;
+                 index < function.Parameters.Count;
+                 index++)
+            {
+                _environment.Define(
+                    function.Parameters[index],
+                    arguments[index]);
+            }
+
+            try
+            {
+                object? lastValue = null;
+
+                foreach (BoundStatement statement
+                         in declaration.Body.Statements)
+                {
+                    lastValue =
+                        ExecuteStatement(statement);
+                }
+
+                return lastValue;
+            }
+            catch (ReturnSignal signal)
+            {
+                return signal.Value;
+            }
+        }
+        finally
+        {
+            _environment =
+                previousEnvironment;
+        }
     }
 
     private static object NegateNumber(
         object? value,
         SourceSpan span)
     {
-        return value switch
+        if (TryGetInteger(value, out long integer))
         {
-            long integer =>
-                ExecuteCheckedInteger(
-                    () => checked(-integer),
-                    span),
+            return ExecuteCheckedInteger(
+                () => checked(-integer),
+                span);
+        }
 
-            double floatingPoint =>
-                -floatingPoint,
+        if (TryGetFloatingPoint(value, out double floatingPoint))
+        {
+            return -floatingPoint;
+        }
 
-            _ => throw new InvalidOperationException(
-                "Numeric negation received a non-numeric value.")
-        };
+        throw new InvalidOperationException(
+            $"Numeric negation received incompatible runtime value " +
+            $"`{GetRuntimeTypeName(value)}`.");
     }
 
     private static object Add(
@@ -418,30 +526,30 @@ public sealed class Interpreter
         object? right,
         SourceSpan span)
     {
-        if (left is long leftInteger &&
-            right is long rightInteger)
-        {
-            return ExecuteCheckedInteger(
-                () => checked(
-                    leftInteger + rightInteger),
-                span);
-        }
-
-        if (left is double leftFloat &&
-            right is double rightFloat)
-        {
-            return leftFloat + rightFloat;
-        }
-
         if (left is string leftString &&
             right is string rightString)
         {
             return leftString + rightString;
         }
 
+        if (TryGetInteger(left, out long leftInteger) &&
+            TryGetInteger(right, out long rightInteger))
+        {
+            return ExecuteCheckedInteger(
+                () => checked(leftInteger + rightInteger),
+                span);
+        }
+
+        if (TryGetNumber(left, out double leftNumber) &&
+            TryGetNumber(right, out double rightNumber))
+        {
+            return leftNumber + rightNumber;
+        }
+
         throw new InvalidOperationException(
             $"Addition received incompatible runtime values: " +
-            $"`{GetRuntimeTypeName(left)}` and `{GetRuntimeTypeName(right)}`.");
+            $"`{GetRuntimeTypeName(left)}` and " +
+            $"`{GetRuntimeTypeName(right)}`.");
     }
 
     private static object Subtract(
@@ -449,20 +557,24 @@ public sealed class Interpreter
         object? right,
         SourceSpan span)
     {
-        return (left, right) switch
+        if (TryGetInteger(left, out long leftInteger) &&
+            TryGetInteger(right, out long rightInteger))
         {
-            (long leftInteger, long rightInteger) =>
-                ExecuteCheckedInteger(
-                    () => checked(
-                        leftInteger - rightInteger),
-                    span),
+            return ExecuteCheckedInteger(
+                () => checked(leftInteger - rightInteger),
+                span);
+        }
 
-            (double leftFloat, double rightFloat) =>
-                leftFloat - rightFloat,
+        if (TryGetNumber(left, out double leftNumber) &&
+            TryGetNumber(right, out double rightNumber))
+        {
+            return leftNumber - rightNumber;
+        }
 
-            _ => throw new InvalidOperationException(
-                "Subtraction received incompatible runtime values.")
-        };
+        throw new InvalidOperationException(
+            $"Subtraction received incompatible runtime values: " +
+            $"`{GetRuntimeTypeName(left)}` and " +
+            $"`{GetRuntimeTypeName(right)}`.");
     }
 
     private static object Multiply(
@@ -470,24 +582,24 @@ public sealed class Interpreter
         object? right,
         SourceSpan span)
     {
-        if (left is long leftInteger &&
-            right is long rightInteger)
+        if (TryGetInteger(left, out long leftInteger) &&
+            TryGetInteger(right, out long rightInteger))
         {
             return ExecuteCheckedInteger(
-                () => checked(
-                    leftInteger * rightInteger),
+                () => checked(leftInteger * rightInteger),
                 span);
         }
 
-        if (left is double leftFloat &&
-            right is double rightFloat)
+        if (TryGetNumber(left, out double leftNumber) &&
+            TryGetNumber(right, out double rightNumber))
         {
-            return leftFloat * rightFloat;
+            return leftNumber * rightNumber;
         }
 
         throw new InvalidOperationException(
             $"Multiplication received incompatible runtime values: " +
-            $"`{GetRuntimeTypeName(left)}` and `{GetRuntimeTypeName(right)}`.");
+            $"`{GetRuntimeTypeName(left)}` and " +
+            $"`{GetRuntimeTypeName(right)}`.");
     }
 
     private static object Divide(
@@ -495,8 +607,14 @@ public sealed class Interpreter
         object? right,
         SourceSpan span)
     {
-        double leftNumber = (double)left!;
-        double rightNumber = (double)right!;
+        if (!TryGetNumber(left, out double leftNumber) ||
+            !TryGetNumber(right, out double rightNumber))
+        {
+            throw new InvalidOperationException(
+                $"Division received incompatible runtime values: " +
+                $"`{GetRuntimeTypeName(left)}` and " +
+                $"`{GetRuntimeTypeName(right)}`.");
+        }
 
         if (rightNumber == 0)
         {
@@ -516,8 +634,14 @@ public sealed class Interpreter
         object? right,
         SourceSpan span)
     {
-        long leftNumber = (long)left!;
-        long rightNumber = (long)right!;
+        if (!TryGetInteger(left, out long leftNumber) ||
+            !TryGetInteger(right, out long rightNumber))
+        {
+            throw new InvalidOperationException(
+                $"Remainder received incompatible runtime values: " +
+                $"`{GetRuntimeTypeName(left)}` and " +
+                $"`{GetRuntimeTypeName(right)}`.");
+        }
 
         if (rightNumber == 0)
         {
@@ -529,8 +653,7 @@ public sealed class Interpreter
         }
 
         return ExecuteCheckedInteger(
-            () => checked(
-                leftNumber % rightNumber),
+            () => checked(leftNumber % rightNumber),
             span);
     }
 
@@ -538,19 +661,22 @@ public sealed class Interpreter
         object? left,
         object? right)
     {
-        return (left, right) switch
+        if (TryGetInteger(left, out long leftInteger) &&
+            TryGetInteger(right, out long rightInteger))
         {
-            (long leftInteger, long rightInteger) =>
-                leftInteger.CompareTo(
-                    rightInteger),
+            return leftInteger.CompareTo(rightInteger);
+        }
 
-            (double leftFloat, double rightFloat) =>
-                leftFloat.CompareTo(
-                    rightFloat),
+        if (TryGetNumber(left, out double leftNumber) &&
+            TryGetNumber(right, out double rightNumber))
+        {
+            return leftNumber.CompareTo(rightNumber);
+        }
 
-            _ => throw new InvalidOperationException(
-                "Numeric comparison received incompatible runtime values.")
-        };
+        throw new InvalidOperationException(
+            $"Numeric comparison received incompatible runtime values: " +
+            $"`{GetRuntimeTypeName(left)}` and " +
+            $"`{GetRuntimeTypeName(right)}`.");
     }
 
     private static long ExecuteCheckedInteger(
@@ -572,6 +698,73 @@ public sealed class Interpreter
         }
     }
     
+    private static bool TryGetInteger(
+        object? value,
+        out long result)
+    {
+        switch (value)
+        {
+            case long longValue:
+                result = longValue;
+                return true;
+
+            case int intValue:
+                result = intValue;
+                return true;
+
+            case short shortValue:
+                result = shortValue;
+                return true;
+
+            case byte byteValue:
+                result = byteValue;
+                return true;
+
+            default:
+                result = 0;
+                return false;
+        }
+    }
+
+    private static bool TryGetFloatingPoint(
+        object? value,
+        out double result)
+    {
+        switch (value)
+        {
+            case double doubleValue:
+                result = doubleValue;
+                return true;
+
+            case float floatValue:
+                result = floatValue;
+                return true;
+
+            default:
+                result = 0;
+                return false;
+        }
+    }
+
+    private static bool TryGetNumber(
+        object? value,
+        out double result)
+    {
+        if (TryGetFloatingPoint(value, out result))
+        {
+            return true;
+        }
+
+        if (TryGetInteger(value, out long integer))
+        {
+            result = integer;
+            return true;
+        }
+
+        result = 0;
+        return false;
+    }
+
     private static string GetRuntimeTypeName(object? value)
     {
         return value?.GetType().FullName ?? "null";

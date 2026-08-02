@@ -1,0 +1,3 @@
+process getScore() -> int
+	return "high";
+end;
